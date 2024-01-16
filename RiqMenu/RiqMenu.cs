@@ -89,10 +89,7 @@ namespace RiqMenu
         IEnumerator OnRiqSelected(string fileName)
         {
             RiqLoader.path = fileName;
-            if (autoPlay)
-            {
-                MixtapeLoader.autoplay = true;
-            }
+            MixtapeLoader.autoplay = autoPlay;
             showMenu = false;
             Cursor.visible = false;
             CameraScript cameraScript = GameObject.Find("Main Camera").GetComponent<CameraScript>();
