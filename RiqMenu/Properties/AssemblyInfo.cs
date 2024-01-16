@@ -16,7 +16,7 @@ using RiqMenu;
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 [assembly: MelonInfo(typeof(RiqMenuMain), "RiqMenu", "0.1", "KabirAcharya")]
-[assembly: MelonGame("Bits & Bops", "Tempo Lab Games")]
+[assembly: MelonGame("Tempo Lab Games", "Bits & Bops")]
 
 // Setting ComVisible to false makes the types in this assembly not visible
 // to COM components.  If you need to access a type in this assembly from

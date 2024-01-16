@@ -14,6 +14,7 @@ namespace RiqMenu
     public class RiqMenuMain : MelonMod
     {
         private bool showMenu = false;
+        private bool autoPlay = false;
         private string[] fileNames;
         private Vector2 scrollPosition;
 
@@ -65,6 +66,8 @@ namespace RiqMenu
 
         void RiqShowMenu(int windowID)
         {
+            autoPlay = GUILayout.Toggle(autoPlay, "Autoplay");
+
             scrollPosition = GUILayout.BeginScrollView(scrollPosition, GUILayout.Width(280), GUILayout.Height(250));
             foreach (string fileName in fileNames)
             {
@@ -91,7 +94,10 @@ namespace RiqMenu
         IEnumerator OnRiqSelected(string fileName)
         {
             RiqLoader.path = fileName;
-            yield return AlphaDisclaimerScript.CheckForAutoplay();
+            if (autoPlay)
+            {
+                MixtapeLoader.autoplay = true;
+            }
             showMenu = false;
             Cursor.visible = false;
             CameraScript cameraScript = GameObject.Find("Main Camera").GetComponent<CameraScript>();
