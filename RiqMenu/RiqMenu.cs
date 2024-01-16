@@ -1,12 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.Linq;
 using System.IO;
 using MelonLoader;
 using UnityEngine;
-using Microsoft.SqlServer.Server;
 using System.Collections;
 
 namespace RiqMenu
