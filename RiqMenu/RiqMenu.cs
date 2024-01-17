@@ -44,6 +44,13 @@ namespace RiqMenu
                 showMenu = !showMenu;
                 Cursor.visible = showMenu;
             }
+            if (Input.GetKeyDown(KeyCode.R))
+            {
+                if (RiqLoader.path != null)
+                {
+                    TempoSceneManager.LoadScene(SceneKey.RiqLoader, false);
+                }
+            }
         }
 
         public override void OnGUI()
@@ -171,9 +178,8 @@ namespace RiqMenu
                     MelonCoroutines.Start(this.OnRiqSelected(fileName));
                 }
             }
-
             GUILayout.EndScrollView();
-
+            
             if (GUILayout.Button("Close Menu", buttonStyle))
             {
                 showMenu = false;
