@@ -3,6 +3,8 @@ using System.IO;
 using MelonLoader;
 using UnityEngine;
 using System.Collections;
+using UnityEngine.SceneManagement;
+using UnityEngine.Events;
 
 namespace RiqMenu
 {
@@ -29,7 +31,8 @@ namespace RiqMenu
             fileNames = Directory.GetFiles(path)
                 .Where(file => file.EndsWith(".riq") && !excludeFiles.Contains(Path.GetFileName(file)))
                 .ToArray();
-        }
+            SceneManager.sceneLoaded += OnSceneLoaded;
+         }
 
         public override void OnUpdate()
         {
@@ -42,20 +45,35 @@ namespace RiqMenu
 
         public override void OnGUI()
         {
+            Texture2D blackTexture = new Texture2D(1, 1);
+            blackTexture.SetPixel(0, 0, new Color(0, 0, 0, 1));
+            blackTexture.Apply();
+
+            Texture2D whiteTexture = new Texture2D(1, 1);
+            whiteTexture.SetPixel(0, 0, new Color(1, 1, 1, 1));
+            whiteTexture.Apply();
+            
             fileStyleNormal = new GUIStyle(GUI.skin.button)
             {
-                normal = { textColor = Color.white, background = Texture2D.blackTexture },
-                hover = { textColor = Color.black, background = Texture2D.whiteTexture },
-                alignment = TextAnchor.MiddleLeft
-            };
-            fileStyleHover = new GUIStyle(fileStyleNormal)
-            {
-                normal = { textColor = Color.black, background = Texture2D.whiteTexture }
+                normal = { textColor = Color.white, background = blackTexture },
+                hover = { textColor = Color.black, background = whiteTexture },
+                alignment = TextAnchor.MiddleLeft,
+                border = new RectOffset(0, 0, 0, 0),
+                overflow = new RectOffset(0, 0, 0, 0)
             };
 
             if (showMenu)
             {
-                GUILayout.Window(0, new Rect(100, 100, 200, 100), RiqShowMenu, "F1 Menu");
+                GUILayout.Window(0, new Rect(100, 100, 200, 100), RiqShowMenu, "RiqMenu");
+            }
+        }
+
+        private static void OnSceneLoaded(Scene scene, LoadSceneMode loadSceneMode)
+        {
+            if (scene.name == SceneKey.TitleScreen.ToString())
+            {
+                TitleScript title = GameObject.Find("TitleScript").GetComponent<TitleScript>();
+                title.buildTypeText.text += " (<color=#ff0000>R</color><color=#ff7f00>i</color><color=#ffff00>q</color><color=#00ff00>M</color><color=#0000ff>e</color><color=#4b0082>n</color><color=#9400d3>u</color>)";
             }
         }
 
@@ -68,7 +86,7 @@ namespace RiqMenu
             {
                 string shortName = Path.GetFileName(fileName);
                 Rect buttonRect = GUILayoutUtility.GetRect(new GUIContent(shortName), fileStyleNormal);
-                GUIStyle currentStyle = buttonRect.Contains(Event.current.mousePosition) ? fileStyleHover : fileStyleNormal;
+                GUIStyle currentStyle = fileStyleNormal;
 
                 if (GUI.Button(buttonRect, shortName, currentStyle))
                 {
