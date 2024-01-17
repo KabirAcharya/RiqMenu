@@ -15,8 +15,11 @@ namespace RiqMenu
         private string[] fileNames;
         private Vector2 scrollPosition;
 
-        private GUIStyle fileStyleNormal;
-        private GUIStyle fileStyleHover;
+        private GUIStyle windowStyle;
+        private GUIStyle buttonStyle;
+        private GUIStyle labelStyle;
+        private GUIStyle toggleStyle;
+        private GUIStyle toggleLabelStyle;
 
         public override void OnInitializeMelon()
         {
@@ -32,7 +35,7 @@ namespace RiqMenu
                 .Where(file => file.EndsWith(".riq") && !excludeFiles.Contains(Path.GetFileName(file)))
                 .ToArray();
             SceneManager.sceneLoaded += OnSceneLoaded;
-         }
+        }
 
         public override void OnUpdate()
         {
@@ -46,25 +49,89 @@ namespace RiqMenu
         public override void OnGUI()
         {
             Texture2D blackTexture = new Texture2D(1, 1);
-            blackTexture.SetPixel(0, 0, new Color(0, 0, 0, 1));
+            blackTexture.SetPixel(0, 0, Color.black);
             blackTexture.Apply();
 
             Texture2D whiteTexture = new Texture2D(1, 1);
-            whiteTexture.SetPixel(0, 0, new Color(1, 1, 1, 1));
+            whiteTexture.SetPixel(0, 0, Color.white);
             whiteTexture.Apply();
-            
-            fileStyleNormal = new GUIStyle(GUI.skin.button)
+
+            Texture2D blackSquareInWhite = new Texture2D(15, 15);
+            for (int x = 0; x < 15; x++)
+            {
+                for (int y = 0; y < 15; y++)
+                {
+                    if (x < 3 || y < 4 || x > 10 || y > 11)
+                    {
+                        blackSquareInWhite.SetPixel(x, y, Color.white);
+                    }
+                    else
+                    {
+                        blackSquareInWhite.SetPixel(x, y, Color.black);
+                    }
+                }
+            }
+            blackSquareInWhite.Apply();
+
+            buttonStyle = new GUIStyle(GUI.skin.button)
             {
                 normal = { textColor = Color.white, background = blackTexture },
                 hover = { textColor = Color.black, background = whiteTexture },
-                alignment = TextAnchor.MiddleLeft,
+                active = { textColor = Color.black, background = whiteTexture },
+                onHover = { textColor = Color.black, background = whiteTexture },
+                onActive = { textColor = Color.black, background = whiteTexture },
+                alignment = TextAnchor.MiddleCenter,
                 border = new RectOffset(0, 0, 0, 0),
                 overflow = new RectOffset(0, 0, 0, 0)
             };
 
+            windowStyle = new GUIStyle(GUI.skin.window)
+            {
+                focused = { textColor = Color.white, background = blackTexture },
+                normal = { textColor = Color.white, background = blackTexture },
+                hover = { textColor = Color.white, background = blackTexture },
+                active = { textColor = Color.white, background = blackTexture },
+                onFocused = { textColor = Color.white, background = blackTexture },
+                onNormal = { textColor = Color.white, background = blackTexture },
+                onHover = { textColor = Color.white, background = blackTexture },
+                onActive = { textColor = Color.white, background = blackTexture },
+                border = new RectOffset(0, 0, 0, 0),
+                padding = new RectOffset(0, 0, 0, 0)
+            };
+
+            labelStyle = new GUIStyle(GUI.skin.label)
+            {
+                normal = { textColor = Color.cyan, background = blackTexture },
+                alignment = TextAnchor.MiddleCenter
+            };
+
+            toggleStyle = new GUIStyle(GUI.skin.toggle)
+            {
+                normal = { background = whiteTexture },
+                hover = { background = blackSquareInWhite },
+                focused = { background = blackSquareInWhite },
+                active = { background = blackSquareInWhite },
+                onNormal = { background = blackSquareInWhite },
+                onHover = { background = blackSquareInWhite },
+                onFocused = { background = blackSquareInWhite },
+                onActive = { background = blackSquareInWhite },
+                fixedHeight = 15,
+                fixedWidth = 15,
+                
+                margin = new RectOffset(0, 0, 0, 0),
+                padding = new RectOffset(0, 0, 0, 0)
+            };
+
+            toggleLabelStyle = new GUIStyle(GUI.skin.label)
+            {
+                normal = { textColor = Color.white, background = blackTexture },
+                alignment = TextAnchor.MiddleLeft,
+                margin = new RectOffset(4, 0, 2, 2)
+            };
+
             if (showMenu)
             {
-                GUILayout.Window(0, new Rect(100, 100, 200, 100), RiqShowMenu, "RiqMenu");
+                GUILayout.Window(0, new Rect(100, 100, 200, 100), RiqShowMenu, "", windowStyle);
             }
         }
 
@@ -79,16 +146,26 @@ namespace RiqMenu
 
         void RiqShowMenu(int windowID)
         {
-            autoPlay = GUILayout.Toggle(autoPlay, "Autoplay");
+            GUILayout.Label("RiqMenu", labelStyle);
+
+            GUILayout.BeginVertical();
+            GUILayout.FlexibleSpace();
+            GUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+            autoPlay = GUILayout.Toggle(autoPlay, "", toggleStyle, GUILayout.Width(20), GUILayout.Height(20));
+            GUILayout.Label("Autoplay", toggleLabelStyle);
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            GUILayout.FlexibleSpace();
+            GUILayout.EndVertical();
 
             scrollPosition = GUILayout.BeginScrollView(scrollPosition, GUILayout.Width(280), GUILayout.Height(250));
             foreach (string fileName in fileNames)
             {
                 string shortName = Path.GetFileName(fileName);
-                Rect buttonRect = GUILayoutUtility.GetRect(new GUIContent(shortName), fileStyleNormal);
-                GUIStyle currentStyle = fileStyleNormal;
+                Rect buttonRect = GUILayoutUtility.GetRect(new GUIContent(shortName), buttonStyle);
 
-                if (GUI.Button(buttonRect, shortName, currentStyle))
+                if (GUI.Button(buttonRect, shortName, buttonStyle))
                 {
                     LoggerInstance.Msg("Loading Riq: " + shortName);
                     MelonCoroutines.Start(this.OnRiqSelected(fileName));
@@ -97,7 +174,7 @@ namespace RiqMenu
 
             GUILayout.EndScrollView();
 
-            if (GUILayout.Button("Close Menu"))
+            if (GUILayout.Button("Close Menu", buttonStyle))
             {
                 showMenu = false;
                 Cursor.visible = false;
