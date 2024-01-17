@@ -9,3 +9,4 @@ A simple RIQ menu for Bits & Bops. Current for Windows only, but will investigat
 - Place the `RiqMenu.dll` file into `Steam\steamapps\common\Bits & Bops Demo\Mods`.
 - Launch the game and press `F1` to open the menu.
 - Click on the level you want to play.
+- Press `R` to quick restart a level.
