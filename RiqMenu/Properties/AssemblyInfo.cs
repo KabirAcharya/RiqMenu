@@ -14,7 +14,7 @@ using RiqMenu;
 [assembly: AssemblyCopyright("Copyright ©  2024")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
-[assembly: MelonInfo(typeof(RiqMenuMain), "RiqMenu", "0.3", "KabirAcharya")]
+[assembly: MelonInfo(typeof(RiqMenuMain), "RiqMenu", "0.4", "KabirAcharya")]
 [assembly: MelonGame("Tempo Lab Games", "Bits & Bops")]
 
 // Setting ComVisible to false makes the types in this assembly not visible
@@ -35,5 +35,5 @@ using RiqMenu;
 // You can specify all the values or you can default the Build and Revision Numbers
 // by using the '*' as shown below:
 // [assembly: AssemblyVersion("1.0.*")]
-[assembly: AssemblyVersion("0.3")]
-[assembly: AssemblyFileVersion("0.3")]
+[assembly: AssemblyVersion("0.4")]
+[assembly: AssemblyFileVersion("0.4")]
