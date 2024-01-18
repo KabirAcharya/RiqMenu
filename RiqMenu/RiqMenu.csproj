@@ -76,8 +76,6 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="LevelCard.cs" />
-    <Compile Include="RiqHelper.cs" />
     <Compile Include="RiqMenu.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>

@@ -74,6 +74,7 @@ namespace RiqMenu {
                     if (newOptions[selected] == "Custom Songs") {
                         // Show UI here
                         showMenu = !showMenu;
+                        Cursor.visible = showMenu;
                     }
                 }
             }
