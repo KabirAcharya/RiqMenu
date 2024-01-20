@@ -1,6 +1,4 @@
-﻿using MelonLoader;
-using System.IO;
-using System.Security.Cryptography.X509Certificates;
+﻿using System.IO;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -8,7 +6,7 @@ using UnityEngine.UI;
 namespace RiqMenu {
     public class CustomSongsScene {
 
-        public delegate void CustomSongSelectedDelegate(string filename);
+        public delegate void CustomSongSelectedDelegate(CustomSong filename);
         public CustomSongSelectedDelegate CustomSongSelected;
 
         public Canvas mainCanvas => _mainCanvas;
@@ -18,7 +16,9 @@ namespace RiqMenu {
 
         private GameObject _contentPanel;
 
-        public CustomSongsScene(MelonLogger.Instance logger = null) {
+        private bool isActive = false;
+
+        public CustomSongsScene() {
             // -----------------------------------------------------------------
             // Create main canvas
             mainCanvasGO = new GameObject("Main Canvas");
@@ -93,6 +93,12 @@ namespace RiqMenu {
             scrollRect.content = contentPanelTransform;
         }
 
+        public bool ToggleVisibility() {
+            isActive = !isActive;
+            SetVisible(isActive);
+            return isActive;
+        }
+
         public void SetVisible(bool isVisible) {
             if (mainCanvasGO == null) {
                 return;
@@ -100,7 +106,7 @@ namespace RiqMenu {
             mainCanvasGO.SetActive(isVisible);
         }
 
-        public void SetContent(string[] filenames) {
+        public void SetContent(CustomSong[] filenames) {
             ClearContentPanelChildren();
 
             for (int i = 0; i < filenames.Length; i++) {
@@ -112,21 +118,20 @@ namespace RiqMenu {
             int childCount = _contentPanel.transform.childCount;
             for (int i = 0; i < childCount; i++) {
                 if (_contentPanel.transform.GetChild(i) == null) continue;
-
                 GameObject.Destroy(_contentPanel.transform.GetChild(i).gameObject);
             }
         }
 
-        private GameObject CreateSongPanel(string songName, Transform parent) {
+        private GameObject CreateSongPanel(CustomSong song, Transform parent) {
             // Create main panel
-            GameObject songGO = new GameObject(songName);
+            GameObject songGO = new GameObject(song.SongTitle);
             RectTransform songTransform = songGO.AddComponent<RectTransform>();
             songGO.AddComponent<CanvasRenderer>();
             Image songBGImage = songGO.AddComponent<Image>();
             Button songButton = songGO.AddComponent<Button>();
 
             songButton.onClick.AddListener(() => {
-                CustomSongSelected?.Invoke(songName);
+                CustomSongSelected?.Invoke(song);
             });
 
             songTransform.SetParent(parent);
@@ -136,7 +141,7 @@ namespace RiqMenu {
             songTransform.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, 100);
 
             // Create text
-            GameObject textGO = new GameObject($"{songName} Text");
+            GameObject textGO = new GameObject($"{song.SongTitle} Text");
             RectTransform textTransform = textGO.AddComponent<RectTransform>();
             textTransform.anchorMin = Vector2.zero;
             textTransform.anchorMax = Vector2.one;
@@ -148,7 +153,7 @@ namespace RiqMenu {
             textText.color = Color.white;
             textText.verticalAlignment = VerticalAlignmentOptions.Middle;
             textText.horizontalAlignment = HorizontalAlignmentOptions.Left;
-            textText.text = Path.GetFileName(songName);
+            textText.text = song.SongTitle;
 
             return songGO;
         }

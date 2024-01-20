@@ -6,8 +6,13 @@ using System.Collections;
 using UnityEngine.SceneManagement;
 using System.Collections.Generic;
 using System.Reflection;
-using UnityEngine.UI;
-using System.Security.Cryptography.X509Certificates;
+using System.Net;
+using MelonLoader.TinyJSON;
+using System.Threading.Tasks;
+using Newtonsoft.Json;
+using System.Security.Policy;
+using System;
+using System.Net.Http;
 
 namespace RiqMenu {
     public class RiqMenuMain : MelonMod {
@@ -21,10 +26,17 @@ namespace RiqMenu {
         private static GameObject menuObject;
 
         private static CustomSongsScene customSongScene;
+        private static CustomSongsScene getCustomSongScene;
+
+        private static SongDownloadData songDownload;
+
+        private CustomSong[] songList = new CustomSong[0];
+        private List<CustomSong> downloadableSongList = new List<CustomSong>();
 
         public static List<string> newOptions = new List<string>() {
             "Play",
             "Custom Songs",
+            "Get Custom Songs",
             "Settings",
             "Credits",
             "Keep Updated!",
@@ -33,18 +45,17 @@ namespace RiqMenu {
 
         public static Scene currentScene;
 
-        /*  private Vector2 scrollPosition;
-          private GUIStyle windowStyle;
-          private GUIStyle buttonStyle;
-          private GUIStyle labelStyle;
-          private GUIStyle toggleStyle;
-          private GUIStyle toggleLabelStyle;*/
-
         public override void OnInitializeMelon() {
             if (instance == null) {
                 instance = this;
             }
 
+            songDownload = new SongDownloadData(LoggerInstance);
+            LoadLocalSongs();
+            SceneManager.sceneLoaded += OnSceneLoaded;
+        }
+
+        public void LoadLocalSongs() {
             string path = Path.Combine(Application.dataPath, "StreamingAssets");
             LoggerInstance.Msg("Detected Asset Path: " + path);
             string[] excludeFiles = {
@@ -56,7 +67,13 @@ namespace RiqMenu {
             fileNames = Directory.GetFiles(path)
                 .Where(file => file.EndsWith(".riq") && !excludeFiles.Contains(Path.GetFileName(file)))
                 .ToArray();
-            SceneManager.sceneLoaded += OnSceneLoaded;
+
+            songList = new CustomSong[fileNames.Length];
+            for (int i = 0; i < fileNames.Length; i++) {
+                songList[i] = new CustomSong();
+                songList[i].riq = fileNames[i];
+                songList[i].SongTitle = Path.GetFileName(fileNames[i]);
+            }
         }
 
         public override void OnUpdate() {
@@ -79,9 +96,12 @@ namespace RiqMenu {
                     LoggerInstance.Msg($"Selected index {newOptions[selected]}");
                     if (newOptions[selected] == "Custom Songs") {
                         // Show UI here
-                        showMenu = !showMenu;
-                        Cursor.visible = showMenu;
-                        SetCustomSongMenuState(showMenu);
+                        ToggleCustomMenu(customSongScene);
+                    }
+
+                    if (newOptions[selected] == "Get Custom Songs") {
+                        // Show UI here
+                        ToggleCustomMenu(getCustomSongScene);
                     }
                 }
             }
@@ -98,8 +118,27 @@ namespace RiqMenu {
                 title.buildTypeText.text += " (<color=#ff0000>R</color><color=#ff7f00>i</color><color=#ffff00>q</color><color=#00ff00>M</color><color=#0000ff>e</color><color=#4b0082>n</color><color=#9400d3>u</color>)";
 
                 menuObject = GameObject.Find("Menu");
-                customSongScene = new CustomSongsScene(RiqMenuMain.instance.LoggerInstance);
+
+                customSongScene = new CustomSongsScene();
+                customSongScene.SetContent(RiqMenuMain.instance.songList);
                 customSongScene.CustomSongSelected += RiqMenuMain.instance.CustomSongSelected;
+
+                getCustomSongScene = new CustomSongsScene();
+                // Load songs from file
+                _ = songDownload.RetrieveSongData((List<CustomSong> data) => {
+                    RiqMenuMain.instance.LoggerInstance.Msg($"{data.Count} songs found");
+                    RiqMenuMain.instance.downloadableSongList = data;
+                    
+                    getCustomSongScene.SetContent(data.ToArray());
+                });
+                getCustomSongScene.CustomSongSelected += (CustomSong song) => {
+                    if (RiqMenuMain.instance.downloadableSongList != null && RiqMenuMain.instance.downloadableSongList.Count > 0) {
+                        RiqMenuMain.instance.LoggerInstance.Msg("Song downloading...");
+                        _ = songDownload.DownloadSong(song, (bool b) => {
+                            RiqMenuMain.instance.LoggerInstance.Msg("Song download " + (b ? "complete" : "failed") + $". Song {song.SongTitle}");
+                        });
+                    }
+                };
 
                 // Add custom option
                 FieldInfo prop = title.GetType().GetField("optionStrings", BindingFlags.NonPublic | BindingFlags.Instance);
@@ -107,9 +146,9 @@ namespace RiqMenu {
             }
         }
 
-        public void CustomSongSelected(string song) {
-            LoggerInstance.Msg("Loading Riq: " + song);
-            MelonCoroutines.Start(this.OnRiqSelected(song));
+        public void CustomSongSelected(CustomSong song) {
+            LoggerInstance.Msg("Loading Riq: " + song.SongTitle);
+            MelonCoroutines.Start(this.OnRiqSelected(song.riq));
         }
 
         IEnumerator OnRiqSelected(string fileName) {
@@ -123,18 +162,13 @@ namespace RiqMenu {
             TempoSceneManager.LoadScene(SceneKey.RiqLoader, false);
         }
 
-        public void SetCustomSongMenuState(bool state) {
-            titleScript.enabled = !showMenu;
-            menuObject.SetActive(!state);
+        public void ToggleCustomMenu(CustomSongsScene menu) {
+            bool isActive = menu.ToggleVisibility();
 
-            if (customSongScene == null) {
-                LoggerInstance.Msg("WTF?");
+            Cursor.visible = isActive;
 
-            } else {
-                customSongScene.SetContent(fileNames);
-                customSongScene.SetVisible(state);
-            }
-            LoggerInstance.Msg($"Set SongPanel state to: {state}");
+            titleScript.enabled = !isActive;
+            menuObject.SetActive(!isActive);
         }
     }
 }
