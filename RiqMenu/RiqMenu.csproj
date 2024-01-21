@@ -74,10 +74,22 @@
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\..\..\..\Applications\Steam\steamapps\common\Bits &amp; Bops Demo\Bits &amp; Bops_Data\Managed\UnityEngine.TextRenderingModule.dll</HintPath>
     </Reference>
+    <Reference Include="UnityEngine.UI, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>..\..\..\..\Applications\Steam\steamapps\common\Bits &amp; Bops Demo\Bits &amp; Bops_Data\Managed\UnityEngine.UI.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.UIModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>..\..\..\..\Applications\Steam\steamapps\common\Bits &amp; Bops Demo\Bits &amp; Bops_Data\Managed\UnityEngine.UIModule.dll</HintPath>
+    </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="CustomSong.cs" />
+    <Compile Include="CustomSongsScene.cs" />
+    <Compile Include="RiqHelper.cs" />
     <Compile Include="RiqMenu.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="SongDownloadData.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
