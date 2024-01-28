@@ -1,19 +1,21 @@
-﻿using System.Linq;
-using System.IO;
-using MelonLoader;
-using UnityEngine;
-using System.Collections;
-using UnityEngine.SceneManagement;
+﻿using BepInEx;
+using HarmonyLib;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using System;
-using HarmonyLib;
+using UnityEngine.SceneManagement;
+using UnityEngine;
+using System.Collections;
 using TMPro;
+using System.Linq;
 
-namespace RiqMenu {
-    public class RiqMenuMain : MelonMod {
+namespace RiqMenu
+{
+    [BepInPlugin(PluginInfo.PLUGIN_GUID, PluginInfo.PLUGIN_NAME, PluginInfo.PLUGIN_VERSION)]
+    public class RiqMenuMain : BaseUnityPlugin
+    {
         private bool showMenu = false;
-        private bool autoPlay = false;
         private bool loadCustomSongs = false;
         public string[] fileNames;
         public string riqPath;
@@ -23,13 +25,6 @@ namespace RiqMenu {
         private static RiqMenuMain instance;
         private static TitleScript titleScript;
         private static StageSelectScript stageSelectScript;
-
-        private static GameObject menuObject;
-
-        private static CustomSongsScene customSongScene;
-        private static CustomSongsScene getCustomSongScene;
-
-        private static SongDownloadData songDownload;
 
         private CustomSong[] songList = new CustomSong[0];
         private List<CustomSong> downloadableSongList = new List<CustomSong>();
@@ -43,22 +38,24 @@ namespace RiqMenu {
             "Keep Updated!",
             "Quit"
         };
+        public Harmony harmony = new Harmony(PluginInfo.PLUGIN_GUID);
 
         public static Scene currentScene;
 
-        public override void OnInitializeMelon() {
+        public void Awake() {
             if (instance == null) {
                 instance = this;
             }
 
-            songDownload = new SongDownloadData(LoggerInstance);
             LoadLocalSongs();
             SceneManager.sceneLoaded += OnSceneLoaded;
+            harmony.PatchAll();
+            Logger.LogInfo($"Plugin {PluginInfo.PLUGIN_GUID} is loaded!");
         }
 
         public void LoadLocalSongs() {
             string path = Path.Combine(Application.dataPath, "StreamingAssets");
-            LoggerInstance.Msg("Detected Asset Path: " + path);
+            Logger.LogInfo("Detected Asset Path: " + path);
             string[] excludeFiles = {
                 "flipper_snapper.riq",
                 "hammer_time.riq",
@@ -79,9 +76,7 @@ namespace RiqMenu {
             }
         }
 
-        bool reachedTop = false;
-
-        public override void OnUpdate() {
+        public void Update() {
             if (Input.GetKeyDown(KeyCode.F1)) {
                 showMenu = !showMenu;
                 Cursor.visible = showMenu;
@@ -97,23 +92,18 @@ namespace RiqMenu {
             }
 
             if (currentScene.name == SceneKey.TitleScreen.ToString()) {
-                instance.riqPath = null;
                 if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.Space)) {
                     FieldInfo prop = titleScript.GetType().GetField("selection", BindingFlags.NonPublic | BindingFlags.Instance);
                     int selected = (int)prop.GetValue(titleScript);
 
-                    LoggerInstance.Msg($"Selected index {newOptions[selected]}");
+                    Logger.LogInfo($"Selected index {newOptions[selected]}");
                     if (newOptions[selected] == "Play") {
                         loadCustomSongs = false;
                     }
 
                     if (newOptions[selected] == "Custom Songs") {
                         loadCustomSongs = true;
-                        MelonCoroutines.Start(titleScript.Play(SceneKey.StageSelect));
-                    }
-
-                    if (newOptions[selected] == "Get Custom Songs") {
-                        ToggleCustomMenu(getCustomSongScene);
+                        StartCoroutine(titleScript.Play(SceneKey.StageSelect));
                     }
                 }
             }
@@ -125,37 +115,16 @@ namespace RiqMenu {
             }
 
             if ((currentScene.name == "StageSelectDemoSteam") && instance.loadCustomSongs) {
+                instance.riqPath = null;
                 stageSelectScript = GameObject.Find("StageSelect").GetComponent<StageSelectScript>();
                 instance.SetupCustomStageSelect(instance.currentPage, true);
             }
 
             if (scene.name == SceneKey.TitleScreen.ToString()) {
+                instance.riqPath = null;
                 TitleScript title = GameObject.Find("TitleScript").GetComponent<TitleScript>();
                 titleScript = title;
                 title.buildTypeText.text += " (<color=#ff0000>R</color><color=#ff7f00>i</color><color=#ffff00>q</color><color=#00ff00>M</color><color=#0000ff>e</color><color=#4b0082>n</color><color=#9400d3>u</color>)";
-
-                menuObject = GameObject.Find("Menu");
-
-                customSongScene = new CustomSongsScene();
-                customSongScene.SetContent(instance.songList);
-                customSongScene.CustomSongSelected += instance.CustomSongSelected;
-
-                getCustomSongScene = new CustomSongsScene();
-                // Load songs from file
-                _ = songDownload.RetrieveSongData((List<CustomSong> data) => {
-                    instance.LoggerInstance.Msg($"{data.Count} songs found");
-                    instance.downloadableSongList = data;
-
-                    getCustomSongScene.SetContent(data.ToArray());
-                });
-                getCustomSongScene.CustomSongSelected += (CustomSong song) => {
-                    if (instance.downloadableSongList != null && instance.downloadableSongList.Count > 0) {
-                        instance.LoggerInstance.Msg("Song downloading...");
-                        _ = songDownload.DownloadSong(song, (bool b) => {
-                            instance.LoggerInstance.Msg("Song download " + (b ? "complete" : "failed") + $". Song {song.SongTitle}");
-                        });
-                    }
-                };
 
                 // Add custom option
                 FieldInfo prop = title.GetType().GetField("optionStrings", BindingFlags.NonPublic | BindingFlags.Instance);
@@ -163,33 +132,8 @@ namespace RiqMenu {
             }
         }
 
-        public void CustomSongSelected(CustomSong song) {
-            LoggerInstance.Msg("Loading Riq: " + song.SongTitle);
-            MelonCoroutines.Start(this.OnRiqSelected(song.riq));
-        }
-
-        IEnumerator OnRiqSelected(string fileName) {
-            RiqLoader.path = fileName;
-            MixtapeLoader.autoplay = autoPlay;
-            showMenu = false;
-            Cursor.visible = false;
-            CameraScript cameraScript = GameObject.Find("Main Camera").GetComponent<CameraScript>();
-            yield return cameraScript.FadeOut(0.1f);
-            yield return new WaitForSeconds(0.9f);
-            TempoSceneManager.LoadScene(SceneKey.RiqLoader, false);
-        }
-
-        public void ToggleCustomMenu(CustomSongsScene menu) {
-            bool isActive = menu.ToggleVisibility();
-
-            Cursor.visible = isActive;
-
-            titleScript.enabled = !isActive;
-            menuObject.SetActive(!isActive);
-        }
-
         public void SetupCustomStageSelect(int page, bool reset) {
-            LoggerInstance.Msg("Setting up custom stage select");
+            Logger.LogInfo("Setting up custom stage select");
             if (stageSelectScript != null) {
                 foreach (GameObject gameobject in GameObject.FindObjectsOfType<GameObject>()) {
                     if (gameobject.name == "level_menu_cabinet_cover") {
@@ -200,6 +144,7 @@ namespace RiqMenu {
                 if (!reset) {
                     for (int i = page * 20; i < (page + 1) * 20; i++) {
                         TextMeshProUGUI TMPUGUI = stageSelectScript.levelCards[i % 20].gameObject.transform.GetChild(0).GetComponentInChildren<TextMeshProUGUI>();
+                        stageSelectScript.levelCards[i % 20].Deselect();
                         if (i >= songList.Length) {
                             stageSelectScript.levelCards[i % 20].gameObject.SetActive(false);
                         } else {
@@ -207,7 +152,7 @@ namespace RiqMenu {
                             stageSelectScript.levelCards[i % 20].Unlock();
                             TMPUGUI.text = Path.GetFileNameWithoutExtension(fileNames[i]);
                         }
-                        
+
                     }
                     return;
                 }
@@ -247,12 +192,17 @@ namespace RiqMenu {
                 }
             }
         }
-        
-        [HarmonyPatch(typeof(LevelCardScript), "Select", new Type[] { })]
-        private static class CardSelectPatch {
+
+        [HarmonyPatch(typeof(LevelCardScript), "Confirm", new Type[] { })]
+        private static class CardConfirmPatch {
             private static void Postfix(LevelCardScript __instance) {
+                MixtapeLoader.autoplay = false;
+                if (Input.GetKey(KeyCode.P)) {
+                    MixtapeLoader.autoplay = true;
+                }
                 int thisIndex = Array.IndexOf(stageSelectScript.levelCards, __instance);
-                RiqLoader.path = instance.fileNames[thisIndex];
+                instance.riqPath = instance.fileNames[instance.currentPage * 20 + thisIndex];
+                RiqLoader.path = instance.riqPath;
             }
         }
 
@@ -263,7 +213,7 @@ namespace RiqMenu {
             }
         }
 
-        [HarmonyPatch(typeof(LevelCardScript), "get_Selectable", new Type[] { })]
+        [HarmonyPatch(typeof(LevelCardScript), "Selectable", MethodType.Getter)]
         private static class LevelCardSelectablePatch {
             private static void Postfix(LevelCardScript __instance, ref bool __result) {
                 __result &= __instance.gameObject.activeSelf;
@@ -276,6 +226,7 @@ namespace RiqMenu {
             if (Input.GetKeyDown(KeyCode.DownArrow) || Input.GetKeyDown(KeyCode.S)) {
                 stageSelectScript.levelCards[currentY * 5 + currentX].Deselect();
                 instance.SetupCustomStageSelect(++instance.currentPage, false);
+                yield return null;
                 stageSelectScript.levelCards[0].Select();
                 propX.SetValue(stageSelectScript, 0);
                 propY.SetValue(stageSelectScript, 0);
@@ -288,6 +239,7 @@ namespace RiqMenu {
             if (Input.GetKeyDown(KeyCode.UpArrow) || Input.GetKeyDown(KeyCode.W)) {
                 stageSelectScript.levelCards[currentY * 5 + currentX].Deselect();
                 instance.SetupCustomStageSelect(--instance.currentPage, false);
+                yield return null;
                 stageSelectScript.levelCards[15].Select();
                 propX.SetValue(stageSelectScript, 0);
                 propY.SetValue(stageSelectScript, 3);
@@ -303,12 +255,10 @@ namespace RiqMenu {
                 FieldInfo propY = __instance.GetType().GetField("currentY", BindingFlags.NonPublic | BindingFlags.Instance);
                 int currentY = (int)propY.GetValue(__instance);
                 if (x == 0 && y == 1 && currentY == 3 && instance.currentPage < instance.pages) {
-                    MelonCoroutines.Start(instance.DownArrowCheck(propX, propY, currentX, currentY));
-                    return false;
+                    instance.StartCoroutine(instance.DownArrowCheck(propX, propY, currentX, currentY));
                 }
                 if (x == 0 && y == -1 && currentY == 0 && instance.currentPage > 0) {
-                    MelonCoroutines.Start(instance.UpArrowCheck(propX, propY, currentX, currentY));
-                    return false;
+                    instance.StartCoroutine(instance.UpArrowCheck(propX, propY, currentX, currentY));
                 }
                 return true;
             }

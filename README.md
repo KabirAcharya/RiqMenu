@@ -1,14 +1,15 @@
 # RiqMenu
 
-A simple RIQ menu for Bits & Bops. Current for Windows only, but will investigate MacOS/Linux support.
+A simple RIQ menu for Bits & Bops. Currently for Windows only, but MacOS/Linux support is planned very soon.
 
 ## Usage
 
-- Install [MelonLoader](https://melonwiki.xyz/#/README?id=automated-installation) into Bits & Bops Alpha. 
+- Install [BepInEx](https://docs.bepinex.dev/articles/user_guide/installation/index.html) into Bits & Bops Alpha.
 - Place your `.riq` files into `Steam\steamapps\common\Bits & Bops Demo\Bits & Bops_Data\StreamingAssets`.
-- Place the `RiqMenu.dll` file into `Steam\steamapps\common\Bits & Bops Demo\Mods`.
-- Launch the game and press `F1` or select `Custom Songs` from the title screen to open the menu.
-- Click on the level you want to play.
+- Place the `RiqMenu.dll` file into `Steam\steamapps\common\Bits & Bops Demo\BepInEx\plugins\` for Windows.
+- Launch the game and select `Custom Songs` from the title screen to open the menu.
+- Hold `P` for autoplay.
+- Select the level you would like to play.
 - Press `R` to quick restart a level.
 
 ## Thanks
