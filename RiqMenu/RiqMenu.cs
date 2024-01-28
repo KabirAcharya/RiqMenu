@@ -104,51 +104,6 @@ namespace RiqMenu {
                 }
             }
 
-            IEnumerator DownArrowCheck(FieldInfo propX, FieldInfo propY, int currentX, int currentY) {
-                yield return null;
-                yield return null;
-                if (Input.GetKeyDown(KeyCode.DownArrow) || Input.GetKeyDown(KeyCode.S)) {
-                    stageSelectScript.levelCards[currentY * 5 + currentX].Deselect();
-                    yield return null;
-                    instance.SetupCustomStageSelect(++instance.currentPage, false);
-                    yield return null;
-                    stageSelectScript.levelCards[0].Select();
-                    yield return null;
-                    propX.SetValue(stageSelectScript, 0);
-                    propY.SetValue(stageSelectScript, 0);
-                }
-            }
-
-            IEnumerator UpArrowCheck(FieldInfo propX, FieldInfo propY, int currentX, int currentY) {
-                yield return null;
-                yield return null;
-                if (Input.GetKeyDown(KeyCode.UpArrow) || Input.GetKeyDown(KeyCode.W)) {
-                    stageSelectScript.levelCards[currentY * 5 + currentX].Deselect();
-                    yield return null;
-                    instance.SetupCustomStageSelect(--instance.currentPage, false);
-                    yield return null;
-                    stageSelectScript.levelCards[15].Select();
-                    yield return null;
-                    propX.SetValue(stageSelectScript, 0);
-                    propY.SetValue(stageSelectScript, 3);
-                }
-            }
-
-            if (currentScene.name == "StageSelectDemoSteam" && loadCustomSongs) {
-                FieldInfo propX = stageSelectScript.GetType().GetField("currentY", BindingFlags.NonPublic | BindingFlags.Instance);
-                int currentX = (int)propX.GetValue(stageSelectScript);
-                FieldInfo propY = stageSelectScript.GetType().GetField("currentY", BindingFlags.NonPublic | BindingFlags.Instance);
-                int currentY = (int)propY.GetValue(stageSelectScript);
-
-                if (instance.pages > 0 && instance.currentPage < instance.pages && currentY == 3) {
-                    MelonCoroutines.Start(DownArrowCheck(propX, propY, currentX, currentY));
-                }
-
-                if (instance.pages > 0 && instance.currentPage > 0 && currentY == 0) {
-                    MelonCoroutines.Start(UpArrowCheck(propX, propY, currentX, currentY));
-                }
-            }
-
             if (currentScene.name == SceneKey.TitleScreen.ToString()) {
                 instance.riqPath = null;
                 if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.Space)) {
@@ -301,20 +256,12 @@ namespace RiqMenu {
             }
         }
         
-
-        //Postfix LevelCardScript.Select()
         [HarmonyPatch(typeof(LevelCardScript), "Select", new Type[] { })]
         private static class CardSelectPatch {
             private static void Postfix(LevelCardScript __instance) {
                 int thisIndex = Array.IndexOf(stageSelectScript.levelCards, __instance);
                 RiqLoader.path = instance.fileNames[thisIndex];
             }
-        }
-
-        private static IEnumerator UnlockInput(StageSelectScript __instance) {
-            yield return new WaitForSeconds(0.05f);
-            FieldInfo propInput = __instance.GetType().GetField("acceptInput", BindingFlags.NonPublic | BindingFlags.Instance);
-            propInput.SetValue(__instance, true);
         }
 
         [HarmonyPatch(typeof(RiqLoader), "Awake", new Type[] { })]
@@ -328,6 +275,56 @@ namespace RiqMenu {
         private static class LevelCardSelectablePatch {
             private static void Postfix(LevelCardScript __instance, ref bool __result) {
                 __result &= __instance.gameObject.activeSelf;
+            }
+        }
+
+        IEnumerator DownArrowCheck(FieldInfo propX, FieldInfo propY, int currentX, int currentY) {
+            yield return null;
+            yield return null;
+            if (Input.GetKeyDown(KeyCode.DownArrow) || Input.GetKeyDown(KeyCode.S)) {
+                stageSelectScript.levelCards[currentY * 5 + currentX].Deselect();
+                yield return null;
+                instance.SetupCustomStageSelect(++instance.currentPage, false);
+                yield return null;
+                stageSelectScript.levelCards[0].Select();
+                yield return null;
+                propX.SetValue(stageSelectScript, 0);
+                propY.SetValue(stageSelectScript, 0);
+            }
+        }
+
+        IEnumerator UpArrowCheck(FieldInfo propX, FieldInfo propY, int currentX, int currentY) {
+            yield return null;
+            yield return null;
+            if (Input.GetKeyDown(KeyCode.UpArrow) || Input.GetKeyDown(KeyCode.W)) {
+                stageSelectScript.levelCards[currentY * 5 + currentX].Deselect();
+                yield return null;
+                instance.SetupCustomStageSelect(--instance.currentPage, false);
+                yield return null;
+                stageSelectScript.levelCards[15].Select();
+                yield return null;
+                propX.SetValue(stageSelectScript, 0);
+                propY.SetValue(stageSelectScript, 3);
+            }
+        }
+
+        [HarmonyPatch(typeof(StageSelectScript), "OnDirection", new Type[] { typeof(int), typeof(int) })]
+        private static class StageSelectOnDirectionPatch {
+            private static bool Prefix(StageSelectScript __instance, int x, int y) {
+                if (!instance.loadCustomSongs) return true;
+                FieldInfo propX = __instance.GetType().GetField("currentX", BindingFlags.NonPublic | BindingFlags.Instance);
+                int currentX = (int)propX.GetValue(__instance);
+                FieldInfo propY = __instance.GetType().GetField("currentY", BindingFlags.NonPublic | BindingFlags.Instance);
+                int currentY = (int)propY.GetValue(__instance);
+                if (x == 0 && y == 1 && currentY == 3 && instance.currentPage < instance.pages) {
+                    MelonCoroutines.Start(instance.DownArrowCheck(propX, propY, currentX, currentY));
+                    return false;
+                }
+                if (x == 0 && y == -1 && currentY == 0 && instance.currentPage > 0) {
+                    MelonCoroutines.Start(instance.UpArrowCheck(propX, propY, currentX, currentY));
+                    return false;
+                }
+                return true;
             }
         }
     }
