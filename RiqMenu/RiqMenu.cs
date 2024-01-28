@@ -6,17 +6,9 @@ using System.Collections;
 using UnityEngine.SceneManagement;
 using System.Collections.Generic;
 using System.Reflection;
-using System.Net;
-using MelonLoader.TinyJSON;
-using System.Threading.Tasks;
-using Newtonsoft.Json;
-using System.Security.Policy;
 using System;
-using System.Net.Http;
-using StageSelectAnimationStates;
 using HarmonyLib;
 using TMPro;
-using static MelonLoader.MelonLogger;
 
 namespace RiqMenu {
     public class RiqMenuMain : MelonMod {
@@ -283,11 +275,8 @@ namespace RiqMenu {
             yield return null;
             if (Input.GetKeyDown(KeyCode.DownArrow) || Input.GetKeyDown(KeyCode.S)) {
                 stageSelectScript.levelCards[currentY * 5 + currentX].Deselect();
-                yield return null;
                 instance.SetupCustomStageSelect(++instance.currentPage, false);
-                yield return null;
                 stageSelectScript.levelCards[0].Select();
-                yield return null;
                 propX.SetValue(stageSelectScript, 0);
                 propY.SetValue(stageSelectScript, 0);
             }
@@ -298,11 +287,8 @@ namespace RiqMenu {
             yield return null;
             if (Input.GetKeyDown(KeyCode.UpArrow) || Input.GetKeyDown(KeyCode.W)) {
                 stageSelectScript.levelCards[currentY * 5 + currentX].Deselect();
-                yield return null;
                 instance.SetupCustomStageSelect(--instance.currentPage, false);
-                yield return null;
                 stageSelectScript.levelCards[15].Select();
-                yield return null;
                 propX.SetValue(stageSelectScript, 0);
                 propY.SetValue(stageSelectScript, 3);
             }
