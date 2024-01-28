@@ -11,7 +11,8 @@ namespace RiqMenu {
         public string Title;
         public string Creator;
         public string riq;
-/*
+
+        /*
         public CustomSong(string songTitle, string riq) : this("", songTitle, songTitle, "", riq) { }
 
         public CustomSong(string Type, string SongTitle, string Title, string Creator, string Riq) {
