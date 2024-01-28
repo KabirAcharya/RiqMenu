@@ -92,7 +92,6 @@ namespace RiqMenu
             }
 
             if (currentScene.name == SceneKey.TitleScreen.ToString()) {
-                instance.riqPath = null;
                 if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.Space)) {
                     FieldInfo prop = titleScript.GetType().GetField("selection", BindingFlags.NonPublic | BindingFlags.Instance);
                     int selected = (int)prop.GetValue(titleScript);
@@ -116,11 +115,13 @@ namespace RiqMenu
             }
 
             if ((currentScene.name == "StageSelectDemoSteam") && instance.loadCustomSongs) {
+                instance.riqPath = null;
                 stageSelectScript = GameObject.Find("StageSelect").GetComponent<StageSelectScript>();
                 instance.SetupCustomStageSelect(instance.currentPage, true);
             }
 
             if (scene.name == SceneKey.TitleScreen.ToString()) {
+                instance.riqPath = null;
                 TitleScript title = GameObject.Find("TitleScript").GetComponent<TitleScript>();
                 titleScript = title;
                 title.buildTypeText.text += " (<color=#ff0000>R</color><color=#ff7f00>i</color><color=#ffff00>q</color><color=#00ff00>M</color><color=#0000ff>e</color><color=#4b0082>n</color><color=#9400d3>u</color>)";
@@ -192,22 +193,16 @@ namespace RiqMenu
             }
         }
 
-        [HarmonyPatch(typeof(LevelCardScript), "Select", new Type[] { })]
-        private static class CardSelectPatch {
-            private static void Postfix(LevelCardScript __instance) {
-                int thisIndex = Array.IndexOf(stageSelectScript.levelCards, __instance);
-                RiqLoader.path = instance.fileNames[instance.currentPage * 20 + thisIndex];
-                instance.Logger.LogInfo($"RiqLoader.path {RiqLoader.path}");
-            }
-        }
-
         [HarmonyPatch(typeof(LevelCardScript), "Confirm", new Type[] { })]
         private static class CardConfirmPatch {
-            private static void Prefix() {
+            private static void Postfix(LevelCardScript __instance) {
                 MixtapeLoader.autoplay = false;
                 if (Input.GetKey(KeyCode.P)) {
                     MixtapeLoader.autoplay = true;
                 }
+                int thisIndex = Array.IndexOf(stageSelectScript.levelCards, __instance);
+                instance.riqPath = instance.fileNames[instance.currentPage * 20 + thisIndex];
+                RiqLoader.path = instance.riqPath;
             }
         }
 
