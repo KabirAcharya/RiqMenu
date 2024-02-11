@@ -1,17 +1,19 @@
 ﻿using BepInEx;
 using HarmonyLib;
+using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
-using System.Reflection;
-using System;
-using UnityEngine.SceneManagement;
-using UnityEngine;
-using System.Collections;
-using TMPro;
+using System.IO.Compression;
 using System.Linq;
+using System.Reflection;
+using System.Text;
+using TMPro;
+using UnityEngine;
+using UnityEngine.Networking;
+using UnityEngine.SceneManagement;
 
-namespace RiqMenu
-{
+namespace RiqMenu {
     [BepInPlugin(PluginInfo.PLUGIN_GUID, PluginInfo.PLUGIN_NAME, PluginInfo.PLUGIN_VERSION)]
     public class RiqMenuMain : BaseUnityPlugin
     {
@@ -26,8 +28,11 @@ namespace RiqMenu
         private static TitleScript titleScript;
         private static StageSelectScript stageSelectScript;
 
-        private CustomSong[] songList = new CustomSong[0];
+        private static CustomSong[] songList = [];
         private List<CustomSong> downloadableSongList = new List<CustomSong>();
+
+        private static GameObject previewSourceGO;
+        private static TempoSound previewSource;
 
         public static List<string> newOptions = new List<string>() {
             "Play",
@@ -73,6 +78,9 @@ namespace RiqMenu
                 songList[i] = new CustomSong();
                 songList[i].riq = fileNames[i];
                 songList[i].SongTitle = Path.GetFileName(fileNames[i]);
+
+
+                Logger.LogInfo($"Loading {songList[i].SongTitle}");
             }
         }
 
@@ -260,8 +268,143 @@ namespace RiqMenu
                 if (x == 0 && y == -1 && currentY == 0 && instance.currentPage > 0) {
                     instance.StartCoroutine(instance.UpArrowCheck(propX, propY, currentX, currentY));
                 }
+
+                TryPlayPreview(currentX, currentY);
+
                 return true;
             }
         }
-    }
+
+        static void TryPlayPreview(int currentX, int currentY) {
+            int idx = currentY * 5 + currentX;
+            if (idx < 0 || idx >= songList.Length) {
+                instance.Logger.LogWarning($"Selected card outside bounds at {idx}/{songList.Length}");
+                return;
+            }
+
+            CustomSong song = songList[idx];
+            if (song == null) return;
+
+            if (song.audioClip == null) {
+                instance.LoadArchive(song.riq, song, () => {
+                    if (song.audioClip != null) {
+                        instance.Logger.LogInfo($"Trying to play {song.SongTitle}");
+                        PlayTempoAudio(song.audioClip, song.audioClip.length / 2f);
+                        RiqMenuMain.instance.Logger.LogInfo("Playing preview");
+                    } else {
+                        RiqMenuMain.instance.Logger.LogInfo("Failed to play preview");
+                    }
+                });
+            } else {
+                PlayTempoAudio(song.audioClip, song.audioClip.length / 2f);
+            }
+        }
+
+        static void PlayTempoAudio(AudioClip clip, float from = 0) {
+            if (previewSourceGO == null) {
+                previewSourceGO = new GameObject("Preview Source");
+            }
+            if (previewSourceGO.TryGetComponent(out TempoSound tmpAudio)) {
+                Destroy(tmpAudio);
+            }
+            previewSourceGO.SetActive(false);
+            previewSource = previewSourceGO.AddComponent<TempoSound>();
+            previewSource.bus = Bus.Music;
+
+            previewSource.audioClip = clip;
+            previewSourceGO.SetActive(true);
+            previewSource.PlayFrom(from);
+        }
+
+        public void LoadArchive(string path, CustomSong song, System.Action onComplete = null) {
+            Action<AudioClip> callbackClip = (AudioClip c) => {
+                Logger.LogInfo($"Loaded audio for {song.SongTitle}");
+                song.audioClip = c;
+                onComplete?.Invoke();
+            };
+
+            using (FileStream fileStream = File.Open(path, FileMode.Open)) {
+                using (ZipArchive zipArchive = new ZipArchive(fileStream, ZipArchiveMode.Read)) {
+
+                    ZipArchiveEntry entry = FindSong(zipArchive, out ZipArchiveEntry e) ? e : zipArchive.GetEntry("song.bin");
+
+                    if (entry == null) {
+                        throw new Exception("Song not found in riq");
+                    }
+                    using (Stream stream2 = entry.Open()) {
+                        using (MemoryStream memoryStream = new MemoryStream()) {
+                            stream2.CopyTo(memoryStream);
+                            byte[] array = memoryStream.ToArray();
+                            AudioType audioType;
+                            if (Encoding.ASCII.GetString(Helpers.GetSubArray<byte>(array, 0, 4)) == "OggS") {
+                                audioType = AudioType.OGGVORBIS;
+                            } else if (Encoding.ASCII.GetString(Helpers.GetSubArray<byte>(array, 0, 3)) == "ID3") {
+                                audioType = AudioType.MPEG;
+                            } else if (array[0] == 255 && (array[1] == 251 || array[1] == 243 || array[1] == 242)) {
+                                audioType = AudioType.MPEG;
+                            } else {
+                                if (!(Encoding.ASCII.GetString(Helpers.GetSubArray<byte>(array, 0, 4)) == "RIFF") || !(Encoding.ASCII.GetString(Helpers.GetSubArray<byte>(array, 8, 12)) == "WAVE")) {
+                                    throw new Exception($"{entry.Name} is not an ogg, mp3 or wav file");
+                                }
+                                audioType = AudioType.WAV;
+                            }
+                            StartCoroutine(this.GetAudioClip(array, audioType, callbackClip));
+                        }
+                    }
+                }
+            }
+        }
+
+        public bool FindSong(ZipArchive archive, out ZipArchiveEntry entry) {
+            entry = null;
+            foreach (ZipArchiveEntry e in archive.Entries) {
+                if (e.FullName.StartsWith("song", StringComparison.OrdinalIgnoreCase)) {
+                    entry = e;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Token: 0x060002E0 RID: 736 RVA: 0x00014670 File Offset: 0x00012870
+        private IEnumerator GetAudioClip(byte[] bytes, AudioType audioType, Action<AudioClip> callbackClip = null) {
+            string path = Application.temporaryCachePath + "/song.bin";
+            File.WriteAllBytes(path, bytes);
+            yield return StartCoroutine(this.GetAudioClip(path, audioType, callbackClip));
+            File.Delete(path);
+            yield break;
+        }
+
+        // Token: 0x060002E1 RID: 737 RVA: 0x0001468D File Offset: 0x0001288D
+        private IEnumerator GetAudioClip(string path, AudioType audioType, Action<AudioClip> callbackClip = null) {
+            if (path.StartsWith("/")) {
+                string text = path;
+                int length = text.Length;
+                int num = 1;
+                int length2 = length - num;
+                path = text.Substring(num, length2);
+            }
+            string uri = "file://localhost/" + path;
+            string cleanUrl = Utils.CleanPath(uri);
+            Debug.Log("Loading audio from URL " + cleanUrl);
+            using (UnityWebRequest www = UnityWebRequestMultimedia.GetAudioClip(uri, audioType)) {
+                yield return www.SendWebRequest();
+                if (www.result != UnityWebRequest.Result.Success) {
+                    Debug.LogError(string.Format("Web Request failed with result {0}: {1}", www.result, www.error));
+                    TempoSceneManager.LoadScene(SceneKey.GenericError, false);
+                    yield break;
+                }
+                AudioClip audioContent = DownloadHandlerAudioClip.GetContent(www);
+                audioContent.name = cleanUrl;
+                base.gameObject.SetActive(false);
+                TempoSound tempoSound = base.gameObject.AddComponent<TempoSound>();
+                tempoSound.audioClip = audioContent;
+                tempoSound.bus = Bus.Music;
+                base.gameObject.SetActive(true);
+                callbackClip?.Invoke(audioContent);
+            }
+            Utils.CleanPath(path);
+            yield break;
+        }
+}
 }

@@ -24,6 +24,12 @@
     <Reference Include="Assembly-CSharp">
       <HintPath>F:\Games\Steam\steamapps\common\Bits &amp; Bops Demo\Bits &amp; Bops_Data\Managed\Assembly-CSharp.dll</HintPath>
     </Reference>
+    <Reference Include="System.IO.Compression">
+      <HintPath>..\..\..\..\..\..\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.8\System.IO.Compression.dll</HintPath>
+    </Reference>
+    <Reference Include="TempoStudio.Core">
+      <HintPath>F:\Games\Steam\steamapps\common\Bits &amp; Bops Demo\Bits &amp; Bops_Data\Managed\TempoStudio.Core.dll</HintPath>
+    </Reference>
     <Reference Include="Unity.TextMeshPro">
       <HintPath>F:\Games\Steam\steamapps\common\Bits &amp; Bops Demo\Bits &amp; Bops_Data\Managed\Unity.TextMeshPro.dll</HintPath>
     </Reference>
