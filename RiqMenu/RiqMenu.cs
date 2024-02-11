@@ -214,6 +214,16 @@ namespace RiqMenu {
             }
         }
 
+        [HarmonyPatch(typeof(LevelCardScript), "Select", new Type[] { })]
+        private static class CardSelectPatch {
+            private static void Postfix(LevelCardScript __instance) {
+                int thisIndex = Array.IndexOf(stageSelectScript.levelCards, __instance);
+                if (instance.loadCustomSongs) {
+                    TryPlayPreview(thisIndex % 5, thisIndex / 5);
+                }
+            }
+        }
+
         [HarmonyPatch(typeof(RiqLoader), "Awake", new Type[] { })]
         private static class RiqLoaderAwakePatch {
             private static void Postfix() {
@@ -254,7 +264,7 @@ namespace RiqMenu {
             }
         }
 
-        [HarmonyPatch(typeof(StageSelectScript), "OnDirection", new Type[] { typeof(int), typeof(int) })]
+        [HarmonyPatch(typeof(StageSelectScript), "OnDirection", [typeof(int), typeof(int)])]
         private static class StageSelectOnDirectionPatch {
             private static bool Prefix(StageSelectScript __instance, int x, int y) {
                 if (!instance.loadCustomSongs) return true;
@@ -264,12 +274,12 @@ namespace RiqMenu {
                 int currentY = (int)propY.GetValue(__instance);
                 if (x == 0 && y == 1 && currentY == 3 && instance.currentPage < instance.pages) {
                     instance.StartCoroutine(instance.DownArrowCheck(propX, propY, currentX, currentY));
+                    return true;
                 }
                 if (x == 0 && y == -1 && currentY == 0 && instance.currentPage > 0) {
                     instance.StartCoroutine(instance.UpArrowCheck(propX, propY, currentX, currentY));
+                    return true;
                 }
-
-                TryPlayPreview(currentX, currentY);
 
                 return true;
             }
@@ -406,5 +416,5 @@ namespace RiqMenu {
             Utils.CleanPath(path);
             yield break;
         }
-}
+    }
 }

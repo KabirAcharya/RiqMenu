@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Collections;
+using System.Reflection;
 
 namespace RiqMenu {
     public static class Helpers {
