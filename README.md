@@ -14,4 +14,4 @@ A simple RIQ menu for Bits & Bops. Currently for Windows only, but MacOS/Linux s
 
 ## Thanks
 
-- [ZeppelinGames](https://github.com/ZeppelinGames) for adding the title screen button.
+- [ZeppelinGames](https://github.com/ZeppelinGames) for adding the title screen button and audio previews.
