@@ -201,30 +201,32 @@ namespace RiqMenu {
             }
         }
 
-        [HarmonyPatch(typeof(LevelCardScript), "Confirm", new Type[] { })]
+        [HarmonyPatch(typeof(LevelCardScript), "Confirm", [])]
         private static class CardConfirmPatch {
             private static void Postfix(LevelCardScript __instance) {
                 MixtapeLoader.autoplay = false;
                 if (Input.GetKey(KeyCode.P)) {
                     MixtapeLoader.autoplay = true;
                 }
-                int thisIndex = Array.IndexOf(stageSelectScript.levelCards, __instance);
-                instance.riqPath = instance.fileNames[instance.currentPage * 20 + thisIndex];
-                RiqLoader.path = instance.riqPath;
+                if (instance.loadCustomSongs) {
+                    int thisIndex = Array.IndexOf(stageSelectScript.levelCards, __instance);
+                    instance.riqPath = instance.fileNames[instance.currentPage * 20 + thisIndex];
+                    RiqLoader.path = instance.riqPath;
+                }
             }
         }
 
-        [HarmonyPatch(typeof(LevelCardScript), "Select", new Type[] { })]
+        [HarmonyPatch(typeof(LevelCardScript), "Select", [])]
         private static class CardSelectPatch {
             private static void Postfix(LevelCardScript __instance) {
-                int thisIndex = Array.IndexOf(stageSelectScript.levelCards, __instance);
                 if (instance.loadCustomSongs) {
+                    int thisIndex = Array.IndexOf(stageSelectScript.levelCards, __instance);
                     TryPlayPreview(thisIndex % 5, thisIndex / 5);
                 }
             }
         }
 
-        [HarmonyPatch(typeof(RiqLoader), "Awake", new Type[] { })]
+        [HarmonyPatch(typeof(RiqLoader), "Awake", [])]
         private static class RiqLoaderAwakePatch {
             private static void Postfix() {
                 RiqLoader.path = null;
@@ -310,21 +312,23 @@ namespace RiqMenu {
             }
         }
 
-        static void PlayTempoAudio(AudioClip clip, float from = 0) {
-            if (previewSourceGO == null) {
-                previewSourceGO = new GameObject("Preview Source");
-            }
-            if (previewSourceGO.TryGetComponent(out TempoSound tmpAudio)) {
-                Destroy(tmpAudio);
-            }
-            previewSourceGO.SetActive(false);
-            previewSource = previewSourceGO.AddComponent<TempoSound>();
-            previewSource.bus = Bus.Music;
+            static void PlayTempoAudio(AudioClip clip, float from = 0) {
+                if (previewSourceGO == null) {
+                    previewSourceGO = new GameObject("Preview Source");
+                }
+                if (previewSource != null) {
+                    previewSource.Stop();
+                    Destroy(previewSource);
+                    previewSource = null;
+                }
+                previewSourceGO.SetActive(false);
+                previewSource = previewSourceGO.AddComponent<TempoSound>();
+                previewSource.bus = Bus.Music;
 
-            previewSource.audioClip = clip;
-            previewSourceGO.SetActive(true);
-            previewSource.PlayFrom(from);
-        }
+                previewSource.audioClip = clip;
+                previewSourceGO.SetActive(true);
+                previewSource.PlayFrom(from);
+            }
 
         public void LoadArchive(string path, CustomSong song, System.Action onComplete = null) {
             Action<AudioClip> callbackClip = (AudioClip c) => {
