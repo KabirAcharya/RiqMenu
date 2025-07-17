@@ -43,7 +43,7 @@ namespace RiqMenu.Cache
 
         public void Cleanup()
         {
-            CleanupOldCacheFiles();
+            CleanupCacheFiles();
             IsActive = false;
         }
 
@@ -544,20 +544,41 @@ namespace RiqMenu.Cache
             return AudioType.UNKNOWN;
         }
 
-        private void CleanupOldCacheFiles()
+        private void CleanupCacheFiles()
         {
             if (!Directory.Exists(_audioCacheDir)) return;
             
             try
             {
-                var files = Directory.GetFiles(_audioCacheDir);
+                var cacheFiles = Directory.GetFiles(_audioCacheDir);
                 var cutoffDate = DateTime.Now.AddDays(-7);
+                var songManager = RiqMenuSystemManager.Instance?.SongManager;
                 
-                foreach (var file in files)
+                // Get current RIQ file names for orphan detection
+                HashSet<string> currentRiqNames = new HashSet<string>();
+                if (songManager?.SongList != null)
                 {
-                    if (File.GetCreationTime(file) < cutoffDate)
+                    foreach (var song in songManager.SongList)
                     {
-                        File.Delete(file);
+                        if (!string.IsNullOrEmpty(song.riq))
+                        {
+                            string riqName = Path.GetFileNameWithoutExtension(song.riq);
+                            currentRiqNames.Add(riqName);
+                        }
+                    }
+                }
+                
+                foreach (var cacheFile in cacheFiles)
+                {
+                    string cacheFileName = Path.GetFileNameWithoutExtension(cacheFile);
+                    bool isOld = File.GetCreationTime(cacheFile) < cutoffDate;
+                    bool isOrphaned = !currentRiqNames.Contains(cacheFileName);
+                    
+                    if (isOld || isOrphaned)
+                    {
+                        File.Delete(cacheFile);
+                        string reason = isOrphaned ? "orphaned" : "old";
+                        Debug.Log($"[CacheManager] Deleted {reason} cache file: {Path.GetFileName(cacheFile)}");
                     }
                 }
             }
