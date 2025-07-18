@@ -50,7 +50,7 @@ namespace RiqMenu {
         private SongManager songManager => systemManager?.SongManager;
         private AudioManager audioManager => systemManager?.AudioManager;
         private UIManager uiManager => systemManager?.UIManager;
-        private CacheManager cacheManager => systemManager?.CacheManager;
+        private AudioPreloader audioPreloader => systemManager?.AudioPreloader;
 
         public Harmony harmony = new Harmony(PluginInfo.PLUGIN_GUID);
 
@@ -78,9 +78,9 @@ namespace RiqMenu {
                 songManager.OnSongsLoaded += OnSongsLoaded;
             }
 
-            if (cacheManager != null && uiManager != null)
+            if (audioPreloader != null && uiManager != null)
             {
-                cacheManager.OnCacheComplete += () => {
+                audioPreloader.OnPreloadComplete += () => {
                     uiManager.HideLoadingProgress();
                 };
             }
@@ -115,11 +115,11 @@ namespace RiqMenu {
         {
             Logger.LogInfo($"Songs loaded: {songs.Length} songs found");
             
-            if (cacheManager != null && uiManager != null)
+            if (audioPreloader != null && uiManager != null)
             {
                 // Show loading screen and start preloading all songs into RAM
                 uiManager.ShowLoadingProgress();
-                cacheManager.CheckAndStartCaching(songs);
+                audioPreloader.CheckAndStartPreloading(songs);
             }
         }
 
@@ -134,7 +134,7 @@ namespace RiqMenu {
         public void ToggleCustomSongsOverlay()
         {
             // Don't allow overlay during preload
-            if (cacheManager != null && cacheManager.IsCaching)
+            if (audioPreloader != null && audioPreloader.IsPreloading)
             {
                 Logger.LogInfo("Cannot show overlay - preload in progress");
                 return;
@@ -254,6 +254,23 @@ namespace RiqMenu {
         private static class RiqLoaderAwakePatch {
             private static void Postfix() {
                 RiqLoader.path = null;
+            }
+        }
+
+        [HarmonyPatch(typeof(TempoSound), "IsPlaying", MethodType.Getter)]
+        private static class TempoSoundIsPlayingPatch {
+            private static bool Prefix(TempoSound __instance, ref bool __result) {
+                // Get the private id field using reflection
+                var idField = __instance.GetType().GetField("id", BindingFlags.NonPublic | BindingFlags.Instance);
+                if (idField != null) {
+                    uint id = (uint)idField.GetValue(__instance);
+                    // Check if the sound ID is invalid (uint.MaxValue = 4294967295)
+                    if (id == uint.MaxValue) {
+                        __result = false;
+                        return false; // Skip original method
+                    }
+                }
+                return true; // Continue with original method
             }
         }
 

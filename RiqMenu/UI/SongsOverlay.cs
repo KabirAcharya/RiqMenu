@@ -113,9 +113,9 @@ namespace RiqMenu.UI
             
             var songManager = RiqMenuSystemManager.Instance?.SongManager;
             var audioManager = RiqMenuSystemManager.Instance?.AudioManager;
-            var cacheManager = RiqMenuSystemManager.Instance?.CacheManager;
+            var audioPreloader = RiqMenuSystemManager.Instance?.AudioPreloader;
             
-            if (songManager == null || audioManager == null || cacheManager == null) return;
+            if (songManager == null || audioManager == null || audioPreloader == null) return;
             
             var song = songManager.GetSong(_selectedSong);
             if (song == null) return;
@@ -135,7 +135,7 @@ namespace RiqMenu.UI
                 audioManager.PlayPreview(song);
                 _isLoadingAudio = false;
             }
-            else if (cacheManager.IsCaching)
+            else if (audioPreloader.IsPreloading)
             {
                 // Preload still in progress
                 _isLoadingAudio = true;

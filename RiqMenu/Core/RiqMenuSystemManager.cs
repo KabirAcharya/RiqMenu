@@ -31,7 +31,7 @@ namespace RiqMenu.Core
         public AudioManager AudioManager { get; private set; }
         public UIManager UIManager { get; private set; }
         public RiqMenu.Input.RiqInputManager InputManager { get; private set; }
-        public CacheManager CacheManager { get; private set; }
+        public AudioPreloader AudioPreloader { get; private set; }
 
         private bool _isInitialized = false;
 
@@ -50,13 +50,13 @@ namespace RiqMenu.Core
         {
             if (_isInitialized) return;
 
-            CacheManager = gameObject.AddComponent<CacheManager>();
+            AudioPreloader = gameObject.AddComponent<AudioPreloader>();
             SongManager = gameObject.AddComponent<SongManager>();
             AudioManager = gameObject.AddComponent<AudioManager>();
             InputManager = gameObject.AddComponent<RiqMenu.Input.RiqInputManager>();
             UIManager = gameObject.AddComponent<UIManager>();
 
-            _systems.Add(CacheManager);
+            _systems.Add(AudioPreloader);
             _systems.Add(SongManager);
             _systems.Add(AudioManager);
             _systems.Add(InputManager);

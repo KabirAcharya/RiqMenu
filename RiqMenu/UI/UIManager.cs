@@ -43,12 +43,12 @@ namespace RiqMenu.UI
                 _songsOverlay.OnSongSelected += OnSongSelected;
             }
             
-            // Subscribe to cache events for loading screen
-            var cacheManager = RiqMenuSystemManager.Instance?.CacheManager;
-            if (cacheManager != null)
+            // Subscribe to preload events for loading screen
+            var audioPreloader = RiqMenuSystemManager.Instance?.AudioPreloader;
+            if (audioPreloader != null)
             {
-                cacheManager.OnCacheProgress += OnCacheProgress;
-                cacheManager.OnCacheComplete += OnCacheComplete;
+                //audioPreloader.OnPreloadProgress += OnPreloadProgress;
+                audioPreloader.OnPreloadComplete += OnPreloadComplete;
             }
             
             IsActive = true;
@@ -64,11 +64,11 @@ namespace RiqMenu.UI
                 inputManager.OnEscapePressed -= HandleEscapePressed;
             }
             
-            var cacheManager = RiqMenuSystemManager.Instance?.CacheManager;
-            if (cacheManager != null)
+            var audioPreloader = RiqMenuSystemManager.Instance?.AudioPreloader;
+            if (audioPreloader != null)
             {
-                cacheManager.OnCacheProgress -= OnCacheProgress;
-                cacheManager.OnCacheComplete -= OnCacheComplete;
+                //audioPreloader.OnPreloadProgress -= OnPreloadProgress;
+                audioPreloader.OnPreloadComplete -= OnPreloadComplete;
             }
             
             if (_songsOverlay != null)
@@ -102,8 +102,8 @@ namespace RiqMenu.UI
 
         private void DrawLoadingProgress()
         {
-            var cacheManager = RiqMenuSystemManager.Instance?.CacheManager;
-            if (cacheManager == null) return;
+            var audioPreloader = RiqMenuSystemManager.Instance?.AudioPreloader;
+            if (audioPreloader == null) return;
             
             // Full screen black overlay (matching original loading screen)
             GUI.color = Color.black;
@@ -123,19 +123,10 @@ namespace RiqMenu.UI
             GUI.Box(boxRect, "");
             GUI.color = Color.white;
             
-            // Title - show current phase based on what's happening
             string title = "RiqMenu - Loading Audio";
-            if (cacheManager.CurrentProcessingFile.Contains("Extracting") || cacheManager.CurrentProcessingFile.Contains("cache"))
-            {
-                title = "RiqMenu - Building Audio Cache";
-            }
-            else if (cacheManager.CurrentProcessingFile.Contains("Loading") || cacheManager.CurrentProcessingFile.Contains("memory"))
-            {
-                title = "RiqMenu - Loading Into Memory";
-            }
             
             GUI.Label(new Rect(boxRect.x + 10, boxRect.y + 10, boxRect.width - 20, 30), 
-                     $"<size=16><color=white><b>{title}</b></color></size>");
+                $"<size=16><color=white><b>{title}</b></color></size>");
             
             // Progress bar background
             float progressBarY = boxRect.y + 50;
@@ -146,9 +137,9 @@ namespace RiqMenu.UI
             GUI.Box(progressBgRect, "");
             
             // Progress bar fill
-            if (cacheManager.TotalFilesToCache > 0)
+            if (audioPreloader.TotalFilesToPreload > 0)
             {
-                float progress = (float)cacheManager.FilesProcessed / cacheManager.TotalFilesToCache;
+                float progress = (float)audioPreloader.FilesProcessed / audioPreloader.TotalFilesToPreload;
                 float fillWidth = progressBarWidth * progress;
                 Rect progressFillRect = new Rect(boxRect.x + 10, progressBarY, fillWidth, progressBarHeight);
                 GUI.color = Color.green;
@@ -158,18 +149,18 @@ namespace RiqMenu.UI
             GUI.color = Color.white;
             
             // Progress text
-            string progressText = cacheManager.TotalFilesToCache > 0 ? 
-                $"Processing: {cacheManager.FilesProcessed}/{cacheManager.TotalFilesToCache}" : 
+            string progressText = audioPreloader.TotalFilesToPreload > 0 ? 
+                $"Processing: {audioPreloader.FilesProcessed}/{audioPreloader.TotalFilesToPreload}" : 
                 "Initializing...";
             GUI.Label(new Rect(boxRect.x + 10, progressBarY + 25, boxRect.width - 20, 20), 
                 $"<color=white>{progressText}</color>");
             
             // Current file
-            if (!string.IsNullOrEmpty(cacheManager.CurrentProcessingFile))
+            if (!string.IsNullOrEmpty(audioPreloader.CurrentProcessingFile))
             {
-                string displayName = cacheManager.CurrentProcessingFile.Length > 40 ? 
-                    cacheManager.CurrentProcessingFile.Substring(0, 37) + "..." : 
-                    cacheManager.CurrentProcessingFile;
+                string displayName = audioPreloader.CurrentProcessingFile.Length > 40 ? 
+                    audioPreloader.CurrentProcessingFile.Substring(0, 37) + "..." : 
+                    audioPreloader.CurrentProcessingFile;
                 GUI.Label(new Rect(boxRect.x + 10, progressBarY + 50, boxRect.width - 20, 20), 
                     $"<color=yellow>{displayName}</color>");
             }
@@ -209,15 +200,12 @@ namespace RiqMenu.UI
                 var riqMenu = FindObjectOfType<RiqMenuMain>();
                 if (riqMenu != null)
                 {
-                    // Set up the song path for RiqLoader (same as original implementation)
+                    // Set up the song path for RiqLoader
                     riqMenu.riqPath = song.riq;
-                    
-                    // CRITICAL: Also set RiqLoader.path (this is what the original patch does)
                     RiqLoader.path = song.riq;
                     
                     Debug.Log($"[UIManager] Loading song: {song.SongTitle} from path: {song.riq}");
                     
-                    // Use the same scene loading approach as the original patch
                     UnityEngine.SceneManagement.SceneManager.LoadScene(SceneKey.RiqLoader.ToString());
                 }
                 else
@@ -227,16 +215,11 @@ namespace RiqMenu.UI
             }
         }
 
-        private void OnCacheProgress(int processed, int total, string currentFile)
-        {
-            // Loading progress is handled by OnGUI, this is just for potential future use
-        }
-
-        private void OnCacheComplete()
+        private void OnPreloadComplete()
         {
             _showLoadingProgress = false;
             
-            // Block input during cache operation
+            // Block input during preload operation
             var inputManager = RiqMenuSystemManager.Instance?.InputManager;
             inputManager?.UnblockInput();
         }
@@ -255,7 +238,7 @@ namespace RiqMenu.UI
                 riqMenu.SetCacheProgressState(true);
             }
             
-            // Block input during cache operation
+            // Block input during preload operation
             var inputManager = RiqMenuSystemManager.Instance?.InputManager;
             inputManager?.BlockInput();
         }

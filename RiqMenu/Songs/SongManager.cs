@@ -72,7 +72,8 @@ namespace RiqMenu.Songs
             };
 
             _fileNames = Directory.GetFiles(path)
-                .Where(file => file.EndsWith(".riq", StringComparison.OrdinalIgnoreCase) && 
+                .Where(file => (file.EndsWith(".riq", StringComparison.OrdinalIgnoreCase) || 
+                    file.EndsWith(".bop", StringComparison.OrdinalIgnoreCase)) && 
                     !excludeFiles.Contains(Path.GetFileName(file)))
                 .OrderBy(file => Path.GetFileNameWithoutExtension(file))
                 .ToArray();
