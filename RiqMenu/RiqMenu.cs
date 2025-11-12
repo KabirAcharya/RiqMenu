@@ -36,8 +36,6 @@ namespace RiqMenu
         }
 
         private static TitleScript titleScript;
-        private static bool riqMenuTextAdded = false;
-        private static bool customSongsButtonAdded = false;
 
         private RiqMenuSystemManager systemManager;
         private SongManager songManager => systemManager?.SongManager;
@@ -123,10 +121,10 @@ namespace RiqMenu
                 TitleScript title = GameObject.Find("TitleScript").GetComponent<TitleScript>();
                 titleScript = title;
 
-                // Only add RiqMenu text if it hasn't been added already
-                if (!riqMenuTextAdded) {
-                    title.buildTypeText.text += " (<color=#ff0000>R</color><color=#ff7f00>i</color><color=#ffff00>q</color><color=#00ff00>M</color><color=#0000ff>e</color><color=#4b0082>n</color><color=#9400d3>u</color>)";
-                    riqMenuTextAdded = true;
+                // Ensure RiqMenu tag is present in the title build text (avoid duplicates)
+                string tag = "(<color=#ff0000>R</color><color=#ff7f00>i</color><color=#ffff00>q</color><color=#00ff00>M</color><color=#0000ff>e</color><color=#4b0082>n</color><color=#9400d3>u</color>)";
+                if (title != null && title.buildTypeText != null && (title.buildTypeText.text == null || !title.buildTypeText.text.Contains(tag))) {
+                    title.buildTypeText.text += " " + tag;
                 }
             }
         }
@@ -134,13 +132,15 @@ namespace RiqMenu
         [HarmonyPatch(typeof(TitleScript), "Awake", [])]
         private static class TitleScriptAwakePatch {
             private static void Postfix(TitleScript __instance) {
-                if (!customSongsButtonAdded) {
-                    FieldInfo prop = __instance.GetType().GetField("optionStrings", BindingFlags.NonPublic | BindingFlags.Instance);
-                    List<string> options = (List<string>)prop.GetValue(__instance);
-
-                    options.Insert(1, "Custom Songs");
+                FieldInfo prop = __instance.GetType().GetField("optionStrings", BindingFlags.NonPublic | BindingFlags.Instance);
+                if (prop == null) return;
+                var options = (List<string>)prop.GetValue(__instance);
+                if (options == null) return;
+                // Insert once per TitleScript instance if missing
+                if (!options.Contains("Custom Songs")) {
+                    int insertIndex = Math.Min(1, options.Count);
+                    options.Insert(insertIndex, "Custom Songs");
                     prop.SetValue(__instance, options);
-                    customSongsButtonAdded = true;
                 }
             }
         }
@@ -159,7 +159,7 @@ namespace RiqMenu
                 FieldInfo prop2 = __instance.GetType().GetField("optionStrings", BindingFlags.NonPublic | BindingFlags.Instance);
                 List<string> options = (List<string>)prop2.GetValue(__instance);
 
-                if (UnityEngine.Input.GetKeyDown(KeyCode.Return) || UnityEngine.Input.GetKeyDown(KeyCode.Space)) {
+                if (TempoInput.GetActionDown<global::Action>(global::Action.Confirm)) {
                     if (selected < options.Count && options[selected] == "Custom Songs") {
                         Instance.ToggleCustomSongsOverlay();
                         return false;

@@ -83,7 +83,7 @@ namespace RiqMenu.UI
             if (songManager == null) return;
 
             // Play selected song with Confirm action
-            if (TempoInput.GetActionDown<global::Action>(global::Action.Confirm)) {
+            if (TempoInput.GetActionDown<Action>(Action.Confirm)) {
                 if (_filteredSongIndices.Count > 0 && _filteredSelectedIndex < _filteredSongIndices.Count) {
                     int actualSongIndex = _filteredSongIndices[_filteredSelectedIndex];
                     OnSongSelected?.Invoke(actualSongIndex);
@@ -93,7 +93,7 @@ namespace RiqMenu.UI
             }
 
             // Exit search mode with Cancel action or Tab
-            if (TempoInput.GetActionDown<global::Action>(global::Action.Cancel) || UnityEngine.Input.GetKeyDown(KeyCode.Tab)) {
+            if (TempoInput.GetActionDown<Action>(Action.Cancel) || UnityEngine.Input.GetKeyDown(KeyCode.Tab)) {
                 ExitSearchMode();
                 return;
             }
@@ -133,11 +133,11 @@ namespace RiqMenu.UI
 
             // Handle navigation in search results
             if (_filteredSongIndices.Count > 0) {
-                if (TempoInput.GetActionDown<global::Action>(global::Action.Up)) {
+                if (TempoInput.GetActionDown<Action>(Action.Up)) {
                     _filteredSelectedIndex = Mathf.Max(0, _filteredSelectedIndex - 1);
                     UpdateSelectionFromFiltered();
                     TryPreviewCurrentSong();
-                } else if (TempoInput.GetActionDown<global::Action>(global::Action.Down)) {
+                } else if (TempoInput.GetActionDown<Action>(Action.Down)) {
                     _filteredSelectedIndex = Mathf.Min(_filteredSongIndices.Count - 1, _filteredSelectedIndex + 1);
                     UpdateSelectionFromFiltered();
                     TryPreviewCurrentSong();
