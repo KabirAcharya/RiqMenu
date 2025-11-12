@@ -8,7 +8,7 @@ namespace RiqMenu {
         public string Creator;
         public string riq;
         public AudioClip audioClip;
-        
+
         public bool IsBopFile => !string.IsNullOrEmpty(riq) && riq.EndsWith(".bop", System.StringComparison.OrdinalIgnoreCase);
     }
 }

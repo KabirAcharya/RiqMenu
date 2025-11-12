@@ -1,28 +1,22 @@
-﻿using BepInEx;
+using BepInEx;
 using HarmonyLib;
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.IO;
-using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
-using System.Text;
-using System.Threading;
 using TMPro;
 using UnityEngine;
-using UnityEngine.Networking;
 using UnityEngine.SceneManagement;
 using RiqMenu.Core;
 using RiqMenu.Songs;
 using RiqMenu.Audio;
 using RiqMenu.UI;
-using RiqMenu.Cache;
 
-namespace RiqMenu {
+namespace RiqMenu
+{
     [BepInPlugin(PluginInfo.PLUGIN_GUID, PluginInfo.PLUGIN_NAME, PluginInfo.PLUGIN_VERSION)]
-    public class RiqMenuMain : BaseUnityPlugin
-    {
+    public class RiqMenuMain : BaseUnityPlugin {
         public string riqPath;
 
         private static RiqMenuMain _instance;
@@ -42,7 +36,6 @@ namespace RiqMenu {
         }
 
         private static TitleScript titleScript;
-        private static bool showCacheProgress = false;
         private static bool riqMenuTextAdded = false;
         private static bool customSongsButtonAdded = false;
 
@@ -50,7 +43,6 @@ namespace RiqMenu {
         private SongManager songManager => systemManager?.SongManager;
         private AudioManager audioManager => systemManager?.AudioManager;
         private UIManager uiManager => systemManager?.UIManager;
-        private AudioPreloader audioPreloader => systemManager?.AudioPreloader;
 
         public Harmony harmony = new Harmony(PluginInfo.PLUGIN_GUID);
 
@@ -73,16 +65,8 @@ namespace RiqMenu {
             systemManager = RiqMenuSystemManager.Instance;
             systemManager.InitializeSystems();
 
-            if (songManager != null)
-            {
+            if (songManager != null) {
                 songManager.OnSongsLoaded += OnSongsLoaded;
-            }
-
-            if (audioPreloader != null && uiManager != null)
-            {
-                audioPreloader.OnPreloadComplete += () => {
-                    uiManager.HideLoadingProgress();
-                };
             }
 
             SceneManager.sceneLoaded += OnSceneLoaded;
@@ -100,8 +84,8 @@ namespace RiqMenu {
         private void HandleF1KeyPress() {
             // Only allow F1 toggle in supported scenes
             string sceneName = currentScene.name;
-            if (sceneName == SceneKey.TitleScreen.ToString() || 
-                sceneName == SceneKey.StageSelect.ToString() || 
+            if (sceneName == SceneKey.TitleScreen.ToString() ||
+                sceneName == SceneKey.StageSelect.ToString() ||
                 sceneName == "StageSelectDemo") {
                 ToggleCustomSongsOverlay();
             }
@@ -111,16 +95,8 @@ namespace RiqMenu {
             systemManager?.OnDestroy();
         }
 
-        private void OnSongsLoaded(CustomSong[] songs)
-        {
+        private void OnSongsLoaded(CustomSong[] songs) {
             Logger.LogInfo($"Songs loaded: {songs.Length} songs found");
-            
-            if (audioPreloader != null && uiManager != null)
-            {
-                // Show loading screen and start preloading all songs into RAM
-                uiManager.ShowLoadingProgress();
-                audioPreloader.CheckAndStartPreloading(songs);
-            }
         }
 
         /// <summary>
@@ -129,33 +105,15 @@ namespace RiqMenu {
         public CustomSong[] songList => songManager?.SongList ?? new CustomSong[0];
 
         /// <summary>
-        /// Toggle the custom songs overlay (only if preload is complete)
+        /// Toggle the custom songs overlay.
         /// </summary>
-        public void ToggleCustomSongsOverlay()
-        {
-            // Don't allow overlay during preload
-            if (audioPreloader != null && audioPreloader.IsPreloading)
-            {
-                Logger.LogInfo("Cannot show overlay - preload in progress");
-                return;
-            }
-            
-            if (uiManager?.SongsOverlay != null)
-            {
+        public void ToggleCustomSongsOverlay() {
+            if (uiManager?.SongsOverlay != null) {
                 uiManager.SongsOverlay.Toggle();
             }
-            else
-            {
+            else {
                 Logger.LogError("UIManager or SongsOverlay not available");
             }
-        }
-
-        /// <summary>
-        /// Set the cache progress state to block/unblock input globally
-        /// </summary>
-        public void SetCacheProgressState(bool isActive)
-        {
-            showCacheProgress = isActive;
         }
 
         private static void OnSceneLoaded(Scene scene, LoadSceneMode loadSceneMode) {
@@ -167,10 +125,10 @@ namespace RiqMenu {
             if (scene.name == SceneKey.TitleScreen.ToString()) {
                 Instance.riqPath = null;
                 StopPreview();
-                
+
                 TitleScript title = GameObject.Find("TitleScript").GetComponent<TitleScript>();
                 titleScript = title;
-                
+
                 // Only add RiqMenu text if it hasn't been added already
                 if (!riqMenuTextAdded) {
                     title.buildTypeText.text += " (<color=#ff0000>R</color><color=#ff7f00>i</color><color=#ffff00>q</color><color=#00ff00>M</color><color=#0000ff>e</color><color=#4b0082>n</color><color=#9400d3>u</color>)";
@@ -185,7 +143,7 @@ namespace RiqMenu {
                 if (!customSongsButtonAdded) {
                     FieldInfo prop = __instance.GetType().GetField("optionStrings", BindingFlags.NonPublic | BindingFlags.Instance);
                     List<string> options = (List<string>)prop.GetValue(__instance);
-                    
+
                     options.Insert(1, "Custom Songs");
                     prop.SetValue(__instance, options);
                     customSongsButtonAdded = true;
@@ -196,21 +154,17 @@ namespace RiqMenu {
         [HarmonyPatch(typeof(TitleScript), "Update", [])]
         private static class TitleScriptUpdatePatch {
             private static bool Prefix(TitleScript __instance) {
-                if (showCacheProgress) {
-                    return false;
-                }
-                
                 bool overlayVisible = Instance.uiManager?.SongsOverlay?.IsVisible ?? false;
                 if (overlayVisible) {
                     return false;
                 }
-                
+
                 FieldInfo prop = __instance.GetType().GetField("selection", BindingFlags.NonPublic | BindingFlags.Instance);
                 int selected = (int)prop.GetValue(__instance);
 
                 FieldInfo prop2 = __instance.GetType().GetField("optionStrings", BindingFlags.NonPublic | BindingFlags.Instance);
                 List<string> options = (List<string>)prop2.GetValue(__instance);
-                
+
                 if (UnityEngine.Input.GetKeyDown(KeyCode.Return) || UnityEngine.Input.GetKeyDown(KeyCode.Space)) {
                     if (selected < options.Count && options[selected] == "Custom Songs") {
                         Instance.ToggleCustomSongsOverlay();
@@ -221,20 +175,14 @@ namespace RiqMenu {
             }
         }
 
-        
-
         [HarmonyPatch(typeof(StageSelectScript), "Update", [])]
         private static class StageSelectScriptUpdatePatch {
             private static bool Prefix(StageSelectScript __instance) {
-                if (showCacheProgress) {
-                    return false;
-                }
-                
                 bool overlayVisible = Instance.uiManager?.SongsOverlay?.IsVisible ?? false;
                 if (overlayVisible) {
                     return false;
                 }
-                
+
                 return true;
             }
         }
