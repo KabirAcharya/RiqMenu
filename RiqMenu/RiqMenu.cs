@@ -48,12 +48,6 @@ namespace RiqMenu
 
         public static Scene currentScene;
 
-        public static T[] GetSubArray<T>(T[] data, int index, int length) {
-            T[] result = new T[length];
-            Array.Copy(data, index, result, 0, length);
-            return result;
-        }
-
         public void Awake() {
             if (_instance != null && _instance != this) {
                 Destroy(gameObject);

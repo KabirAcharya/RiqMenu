@@ -82,8 +82,8 @@ namespace RiqMenu.UI
             var songManager = RiqMenuSystemManager.Instance?.SongManager;
             if (songManager == null) return;
 
-            // Play selected song with Enter
-            if (UnityEngine.Input.GetKeyDown(KeyCode.Return)) {
+            // Play selected song with Confirm action
+            if (TempoInput.GetActionDown<global::Action>(global::Action.Confirm)) {
                 if (_filteredSongIndices.Count > 0 && _filteredSelectedIndex < _filteredSongIndices.Count) {
                     int actualSongIndex = _filteredSongIndices[_filteredSelectedIndex];
                     OnSongSelected?.Invoke(actualSongIndex);
@@ -92,8 +92,8 @@ namespace RiqMenu.UI
                 return;
             }
 
-            // Exit search mode with Escape or Tab
-            if (UnityEngine.Input.GetKeyDown(KeyCode.Escape) || UnityEngine.Input.GetKeyDown(KeyCode.Tab)) {
+            // Exit search mode with Cancel action or Tab
+            if (TempoInput.GetActionDown<global::Action>(global::Action.Cancel) || UnityEngine.Input.GetKeyDown(KeyCode.Tab)) {
                 ExitSearchMode();
                 return;
             }
@@ -133,11 +133,11 @@ namespace RiqMenu.UI
 
             // Handle navigation in search results
             if (_filteredSongIndices.Count > 0) {
-                if (UnityEngine.Input.GetKeyDown(KeyCode.UpArrow) || UnityEngine.Input.GetKeyDown(KeyCode.W)) {
+                if (TempoInput.GetActionDown<global::Action>(global::Action.Up)) {
                     _filteredSelectedIndex = Mathf.Max(0, _filteredSelectedIndex - 1);
                     UpdateSelectionFromFiltered();
                     TryPreviewCurrentSong();
-                } else if (UnityEngine.Input.GetKeyDown(KeyCode.DownArrow) || UnityEngine.Input.GetKeyDown(KeyCode.S)) {
+                } else if (TempoInput.GetActionDown<global::Action>(global::Action.Down)) {
                     _filteredSelectedIndex = Mathf.Min(_filteredSongIndices.Count - 1, _filteredSelectedIndex + 1);
                     UpdateSelectionFromFiltered();
                     TryPreviewCurrentSong();
@@ -146,11 +146,11 @@ namespace RiqMenu.UI
         }
 
         private void HandleNormalInput(int totalSongs) {
-            if (UnityEngine.Input.GetKeyDown(KeyCode.UpArrow) || UnityEngine.Input.GetKeyDown(KeyCode.W)) {
+            if (TempoInput.GetActionDown(Action.Up)) {
                 _selectedSong = Mathf.Max(0, _selectedSong - 1);
                 UpdateScrollFromSelection();
                 TryPreviewCurrentSong();
-            } else if (UnityEngine.Input.GetKeyDown(KeyCode.DownArrow) || UnityEngine.Input.GetKeyDown(KeyCode.S)) {
+            } else if (TempoInput.GetActionDown(Action.Down)) {
                 _selectedSong = Mathf.Min(totalSongs - 1, _selectedSong + 1);
                 UpdateScrollFromSelection();
                 TryPreviewCurrentSong();
@@ -166,12 +166,12 @@ namespace RiqMenu.UI
                 // Toggle autoplay
                 MixtapeLoaderCustom.autoplay = !MixtapeLoaderCustom.autoplay;
                 Debug.Log($"[SongsOverlay] Autoplay toggled: {MixtapeLoaderCustom.autoplay}");
-            } else if (UnityEngine.Input.GetKeyDown(KeyCode.Return) || UnityEngine.Input.GetKeyDown(KeyCode.Space)) {
+            } else if (TempoInput.GetActionDown(Action.Confirm)) {
                 if (_selectedSong < totalSongs) {
                     OnSongSelected?.Invoke(_selectedSong);
                     Hide();
                 }
-            } else if (UnityEngine.Input.GetKeyDown(KeyCode.Escape)) {
+            } else if (TempoInput.GetActionDown<Action>(Action.Cancel)) {
                 Hide();
             }
         }

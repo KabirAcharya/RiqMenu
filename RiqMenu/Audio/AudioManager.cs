@@ -120,7 +120,7 @@ namespace RiqMenu.Audio
                             // Detect based on header
                             if (headerRead >= 4 && Encoding.ASCII.GetString(header, 0, 4) == "OggS") audioType = AudioType.OGGVORBIS;
                             else if (headerRead >= 3 && Encoding.ASCII.GetString(header, 0, 3) == "ID3") audioType = AudioType.MPEG;
-                            else if (headerRead >= 2 && header[0] == 255 && (header[1] == 251 || header[1] == 243 || header[1] == 242)) audioType = AudioType.MPEG;
+                            else if (headerRead >= 2 && header[0] == 255 && (header[1] == 251 || header[1] == 243 || header[1] == 242 || header[1] == 250)) audioType = AudioType.MPEG;
                             else if (headerRead >= 12 && Encoding.ASCII.GetString(header, 0, 4) == "RIFF" && Encoding.ASCII.GetString(header, 8, 4) == "WAVE") audioType = AudioType.WAV;
                             else audioType = AudioType.UNKNOWN;
 
