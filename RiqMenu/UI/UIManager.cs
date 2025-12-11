@@ -94,6 +94,9 @@ namespace RiqMenu.UI
                     riqMenu.riqPath = song.riq;
                     RiqLoader.path = song.riq;
 
+                    // Mark that this song was launched from RiqMenu for proper exit handling
+                    RiqMenuMain.LaunchedFromRiqMenu = true;
+
                     Debug.Log($"[UIManager] Loading song: {song.SongTitle} from path: {song.riq}");
 
                     UnityEngine.SceneManagement.SceneManager.LoadScene(SceneKey.RiqLoader.ToString());

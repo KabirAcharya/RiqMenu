@@ -49,12 +49,12 @@ namespace RiqMenu.Songs
         }
 
         private void LoadLocalSongs() {
-            string path = Path.Combine(Application.dataPath, "StreamingAssets");
+            string path = Path.Combine(Application.dataPath, "StreamingAssets", "RiqMenu");
             Debug.Log($"[SongManager] Scanning for custom songs in: {path}");
 
             if (!Directory.Exists(path)) {
-                Debug.LogWarning($"[SongManager] StreamingAssets directory not found: {path}");
-                return;
+                Debug.Log($"[SongManager] Creating RiqMenu directory: {path}");
+                Directory.CreateDirectory(path);
             }
 
             string[] excludeFiles = {

@@ -4,7 +4,7 @@
     <TargetFramework>net48</TargetFramework>
     <AssemblyName>RiqMenu</AssemblyName>
     <Description> A simple RIQ menu for Bits &amp; Bops. </Description>
-    <Version>0.8</Version>
+    <Version>0.9</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
@@ -39,5 +39,6 @@
   </ItemGroup>
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
     <Exec Command="copy &quot;$(TargetPath)&quot; &quot;F:\Games\Steam\steamapps\common\Bits &amp; Bops Demo\BepInEx\plugins&quot; /Y" />
+    <Exec Command="copy &quot;$(TargetPath)&quot; &quot;F:\Games\Steam\steamapps\common\Bits &amp; Bops\BepInEx\plugins&quot; /Y" />
   </Target>
 </Project>

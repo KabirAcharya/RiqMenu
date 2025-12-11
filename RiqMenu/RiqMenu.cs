@@ -19,6 +19,12 @@ namespace RiqMenu
     public class RiqMenuMain : BaseUnityPlugin {
         public string riqPath;
 
+        /// <summary>
+        /// Tracks whether the current song was launched from RiqMenu.
+        /// Used to determine if we should return to TitleScreen instead of StageSelect.
+        /// </summary>
+        public static bool LaunchedFromRiqMenu { get; set; } = false;
+
         private static RiqMenuMain _instance;
         public static RiqMenuMain Instance {
             get {
@@ -116,15 +122,24 @@ namespace RiqMenu
 
             if (scene.name == SceneKey.TitleScreen.ToString()) {
                 Instance.riqPath = null;
+                LaunchedFromRiqMenu = false; // Reset flag when returning to title
                 StopPreview();
 
                 TitleScript title = GameObject.Find("TitleScript").GetComponent<TitleScript>();
                 titleScript = title;
 
                 // Ensure RiqMenu tag is present in the title build text (avoid duplicates)
-                string tag = "(<color=#ff0000>R</color><color=#ff7f00>i</color><color=#ffff00>q</color><color=#00ff00>M</color><color=#0000ff>e</color><color=#4b0082>n</color><color=#9400d3>u</color>)";
-                if (title != null && title.buildTypeText != null && (title.buildTypeText.text == null || !title.buildTypeText.text.Contains(tag))) {
-                    title.buildTypeText.text += " " + tag;
+                string tag = "<color=#ff0000>R</color><color=#ff7f00>i</color><color=#ffff00>q</color><color=#00ff00>M</color><color=#0000ff>e</color><color=#4b0082>n</color><color=#9400d3>u</color>";
+                if (title != null && title.buildTypeText != null) {
+                    string currentText = title.buildTypeText.text ?? "";
+                    if (!currentText.Contains(tag)) {
+                        // If there's existing text, append with brackets; otherwise just show the tag
+                        if (string.IsNullOrEmpty(currentText)) {
+                            title.buildTypeText.text = tag;
+                        } else {
+                            title.buildTypeText.text = currentText + " (" + tag + ")";
+                        }
+                    }
                 }
             }
         }
@@ -213,6 +228,36 @@ namespace RiqMenu
                     }
                 }
                 return true; // Continue with original method
+            }
+        }
+
+        /// <summary>
+        /// Patch Quitter.Quit to redirect to TitleScreen when exiting a RiqMenu-launched song.
+        /// This handles the pause menu quit path.
+        /// </summary>
+        [HarmonyPatch(typeof(Quitter), "Quit")]
+        private static class QuitterQuitPatch {
+            private static void Prefix(ref SceneKey? quitScene) {
+                // Only redirect if song was launched from RiqMenu and target is StageSelect
+                if (LaunchedFromRiqMenu && quitScene.HasValue && quitScene.Value == SceneKey.StageSelect) {
+                    quitScene = SceneKey.TitleScreen;
+                    Debug.Log("[RiqMenu] Redirecting quit from StageSelect to TitleScreen");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Patch TempoSceneManager.LoadSceneAsync to redirect to TitleScreen when exiting a RiqMenu-launched song.
+        /// This handles the postcard/results screen exit path.
+        /// </summary>
+        [HarmonyPatch(typeof(TempoSceneManager), "LoadSceneAsync", new Type[] { typeof(SceneKey), typeof(float) })]
+        private static class TempoSceneManagerLoadSceneAsyncPatch {
+            private static void Prefix(ref SceneKey scene) {
+                // Only redirect if song was launched from RiqMenu and target is StageSelect
+                if (LaunchedFromRiqMenu && scene == SceneKey.StageSelect) {
+                    scene = SceneKey.TitleScreen;
+                    Debug.Log("[RiqMenu] Redirecting LoadSceneAsync from StageSelect to TitleScreen");
+                }
             }
         }
 
