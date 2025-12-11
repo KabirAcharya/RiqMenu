@@ -50,24 +50,14 @@ namespace RiqMenu.Songs
 
         private void LoadLocalSongs() {
             string path = Path.Combine(Application.dataPath, "StreamingAssets", "RiqMenu");
-            Debug.Log($"[SongManager] Scanning for custom songs in: {path}");
 
             if (!Directory.Exists(path)) {
-                Debug.Log($"[SongManager] Creating RiqMenu directory: {path}");
                 Directory.CreateDirectory(path);
             }
 
-            string[] excludeFiles = {
-                "flipper_snapper.riq",
-                "hammer_time.riq",
-                "bits_and_bops.riq",
-                "meet_and_tweet.riq"
-            };
-
             _fileNames = Directory.GetFiles(path)
-                .Where(file => (file.EndsWith(".riq", StringComparison.OrdinalIgnoreCase) ||
-                    file.EndsWith(".bop", StringComparison.OrdinalIgnoreCase)) &&
-                    !excludeFiles.Contains(Path.GetFileName(file)))
+                .Where(file => file.EndsWith(".riq", StringComparison.OrdinalIgnoreCase) ||
+                               file.EndsWith(".bop", StringComparison.OrdinalIgnoreCase))
                 .OrderBy(file => Path.GetFileNameWithoutExtension(file))
                 .ToArray();
 
@@ -77,10 +67,7 @@ namespace RiqMenu.Songs
                     riq = _fileNames[i],
                     SongTitle = Path.GetFileNameWithoutExtension(_fileNames[i])
                 };
-                Debug.Log($"[SongManager] Found custom song: {_songList[i].SongTitle}");
             }
-
-            Debug.Log($"[SongManager] Loaded {_fileNames.Length} custom songs across {TotalRows} rows");
         }
 
         /// <summary>
@@ -112,6 +99,15 @@ namespace RiqMenu.Songs
         /// </summary>
         public int GetSongIndex(int row, int column) {
             return row * SONGS_PER_ROW + column;
+        }
+
+        /// <summary>
+        /// Reload songs from disk (called after downloading new songs)
+        /// </summary>
+        public void ReloadSongs() {
+            Debug.Log("[SongManager] Reloading songs...");
+            LoadLocalSongs();
+            OnSongsLoaded?.Invoke(_songList);
         }
     }
 }

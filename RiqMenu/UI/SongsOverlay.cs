@@ -1,28 +1,53 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using UnityEngine;
 using RiqMenu.Core;
+using RiqMenu.Online;
 
 namespace RiqMenu.UI
 {
+    public enum OverlayTab { Local, Online }
+
     /// <summary>
-    /// Fullscreen overlay for custom song selection and preview
+    /// Fullscreen overlay for custom song selection, preview, and online browsing
     /// </summary>
     public class SongsOverlay : MonoBehaviour {
         private bool _isVisible = false;
+        private float _showTime = 0f;
+
+        // Tab state
+        private OverlayTab _currentTab = OverlayTab.Local;
+
+        // Local songs state
         private int _selectedSong = 0;
         private int _scrollOffset = 0;
         private int _lastPreviewedSong = -1;
-        private float _showTime = 0f;
         private bool _isLoadingAudio = false;
         private float _loadingStartTime = 0f;
 
-        // Search functionality
+        // Search functionality (local)
         private bool _isSearchMode = false;
         private string _searchQuery = "";
         private List<int> _filteredSongIndices = new List<int>();
         private int _filteredSelectedIndex = 0;
+
+        // Online songs state
+        private RiqsApiClient _apiClient = new RiqsApiClient();
+        private List<OnlineSong> _onlineSongs = new List<OnlineSong>();
+        private int _onlineSelectedIndex = 0;
+        private int _onlineScrollOffset = 0;
+        private bool _isOnlineLoading = false;
+        private bool _isOnlineSearchMode = false;
+        private string _onlineSearchQuery = "";
+        private string _onlineError = null;
+        private string _onlineSort = "newest";
+
+        // Download state
+        private bool _isDownloading = false;
+        private float _downloadProgress = 0f;
+        private string _downloadStatus = null;
 
         private const int VISIBLE_SONGS = 10;
         private const float INPUT_DELAY = 0.2f;
@@ -35,54 +60,101 @@ namespace RiqMenu.UI
 
         private void Update() {
             if (!_isVisible) return;
-            // If we were loading and playback started, clear loading indicator
+
+            // Handle loading indicators
             var audioManager = RiqMenuSystemManager.Instance?.AudioManager;
             if (_isLoadingAudio && audioManager != null && audioManager.IsPreviewPlaying) {
                 _isLoadingAudio = false;
             }
-            // Timeout stuck loading indicators after a short grace period
             if (_isLoadingAudio && Time.time - _loadingStartTime > 3f) {
                 _isLoadingAudio = false;
             }
+
             HandleInput();
         }
 
-        /// <summary>
-        /// Called by UIManager during OnGUI to render the overlay
-        /// </summary>
         public void DrawOverlayGUI() {
             if (!_isVisible) return;
             DrawOverlay();
         }
 
         private void HandleInput() {
-            // Prevent immediate input after showing overlay
             if (Time.time - _showTime < INPUT_DELAY) return;
+            if (_isDownloading) return; // Block input while downloading
 
+            // Tab switching with Left/Right (unless in search mode)
+            if (!_isSearchMode && !_isOnlineSearchMode) {
+                if (TempoInput.GetActionDown(Action.Left) || UnityEngine.Input.GetKeyDown(KeyCode.A)) {
+                    if (_currentTab != OverlayTab.Local) {
+                        SwitchTab(OverlayTab.Local);
+                    }
+                    return;
+                }
+                if (TempoInput.GetActionDown(Action.Right) || UnityEngine.Input.GetKeyDown(KeyCode.D)) {
+                    if (_currentTab != OverlayTab.Online) {
+                        SwitchTab(OverlayTab.Online);
+                    }
+                    return;
+                }
+            }
+
+            if (_currentTab == OverlayTab.Local) {
+                HandleLocalInput();
+            } else {
+                HandleOnlineInput();
+            }
+        }
+
+        private void SwitchTab(OverlayTab targetTab) {
+            _currentTab = targetTab;
+
+            // Reset states
+            _isSearchMode = false;
+            _isOnlineSearchMode = false;
+            _searchQuery = "";
+            _onlineSearchQuery = "";
+            _downloadStatus = null;
+
+            // Stop audio preview when switching tabs
+            var audioManager = RiqMenuSystemManager.Instance?.AudioManager;
+            audioManager?.StopPreview();
+
+            // Reload content for the target tab
+            if (_currentTab == OverlayTab.Online) {
+                LoadOnlineSongs();
+            } else {
+                // Reload local songs
+                var songManager = RiqMenuSystemManager.Instance?.SongManager;
+                songManager?.ReloadSongs();
+                _selectedSong = 0;
+                _scrollOffset = 0;
+                _lastPreviewedSong = -1;
+            }
+        }
+
+        #region Local Songs
+
+        private void HandleLocalInput() {
             var songManager = RiqMenuSystemManager.Instance?.SongManager;
             if (songManager == null) return;
 
-            // Handle Tab key to toggle search mode
             if (UnityEngine.Input.GetKeyDown(KeyCode.Tab)) {
                 ToggleSearchMode();
                 return;
             }
 
-            // Handle search mode input
             if (_isSearchMode) {
-                HandleSearchInput();
+                HandleLocalSearchInput();
                 return;
             }
 
-            // Handle normal navigation
-            HandleNormalInput(songManager.TotalSongs);
+            HandleLocalNormalInput(songManager.TotalSongs);
         }
 
-        private void HandleSearchInput() {
+        private void HandleLocalSearchInput() {
             var songManager = RiqMenuSystemManager.Instance?.SongManager;
             if (songManager == null) return;
 
-            // Play selected song with Confirm action
             if (TempoInput.GetActionDown<Action>(Action.Confirm)) {
                 if (_filteredSongIndices.Count > 0 && _filteredSelectedIndex < _filteredSongIndices.Count) {
                     int actualSongIndex = _filteredSongIndices[_filteredSelectedIndex];
@@ -92,16 +164,13 @@ namespace RiqMenu.UI
                 return;
             }
 
-            // Exit search mode with Cancel action or Tab
             if (TempoInput.GetActionDown<Action>(Action.Cancel) || UnityEngine.Input.GetKeyDown(KeyCode.Tab)) {
                 ExitSearchMode();
                 return;
             }
 
-            // Handle text input for search
             bool searchUpdated = false;
 
-            // Handle backspace
             if (UnityEngine.Input.GetKeyDown(KeyCode.Backspace)) {
                 if (_searchQuery.Length > 0) {
                     _searchQuery = _searchQuery.Substring(0, _searchQuery.Length - 1);
@@ -109,7 +178,6 @@ namespace RiqMenu.UI
                 }
             }
 
-            // Handle Ctrl+A to clear search
             if (UnityEngine.Input.GetKeyDown(KeyCode.A) && (UnityEngine.Input.GetKey(KeyCode.LeftControl) || UnityEngine.Input.GetKey(KeyCode.RightControl))) {
                 if (_searchQuery.Length > 0) {
                     _searchQuery = "";
@@ -117,7 +185,6 @@ namespace RiqMenu.UI
                 }
             }
 
-            // Handle character input
             string inputString = UnityEngine.Input.inputString;
             foreach (char c in inputString) {
                 if (char.IsLetterOrDigit(c) || char.IsPunctuation(c) || c == ' ') {
@@ -126,12 +193,10 @@ namespace RiqMenu.UI
                 }
             }
 
-            // Update search results if query changed
             if (searchUpdated) {
-                UpdateSearchResults();
+                UpdateLocalSearchResults();
             }
 
-            // Handle navigation in search results
             if (_filteredSongIndices.Count > 0) {
                 if (TempoInput.GetActionDown<Action>(Action.Up)) {
                     _filteredSelectedIndex = Mathf.Max(0, _filteredSelectedIndex - 1);
@@ -145,7 +210,7 @@ namespace RiqMenu.UI
             }
         }
 
-        private void HandleNormalInput(int totalSongs) {
+        private void HandleLocalNormalInput(int totalSongs) {
             if (TempoInput.GetActionDown(Action.Up)) {
                 _selectedSong = Mathf.Max(0, _selectedSong - 1);
                 UpdateScrollFromSelection();
@@ -163,9 +228,7 @@ namespace RiqMenu.UI
                 UpdateScrollFromSelection();
                 TryPreviewCurrentSong();
             } else if (UnityEngine.Input.GetKeyDown(KeyCode.P)) {
-                // Toggle autoplay
                 MixtapeLoaderCustom.autoplay = !MixtapeLoaderCustom.autoplay;
-                Debug.Log($"[SongsOverlay] Autoplay toggled: {MixtapeLoaderCustom.autoplay}");
             } else if (TempoInput.GetActionDown(Action.Confirm)) {
                 if (_selectedSong < totalSongs) {
                     OnSongSelected?.Invoke(_selectedSong);
@@ -182,9 +245,6 @@ namespace RiqMenu.UI
                 _searchQuery = "";
                 _filteredSongIndices.Clear();
                 _filteredSelectedIndex = 0;
-                Debug.Log("[SongsOverlay] Search mode activated");
-            } else {
-                Debug.Log("[SongsOverlay] Search mode deactivated");
             }
         }
 
@@ -193,21 +253,17 @@ namespace RiqMenu.UI
             _searchQuery = "";
             _filteredSongIndices.Clear();
             _filteredSelectedIndex = 0;
-            Debug.Log("[SongsOverlay] Exited search mode");
         }
 
-        private void UpdateSearchResults() {
+        private void UpdateLocalSearchResults() {
             var songManager = RiqMenuSystemManager.Instance?.SongManager;
             if (songManager == null) return;
 
             _filteredSongIndices.Clear();
             _filteredSelectedIndex = 0;
 
-            if (string.IsNullOrEmpty(_searchQuery)) {
-                return;
-            }
+            if (string.IsNullOrEmpty(_searchQuery)) return;
 
-            // Perform fuzzy search
             var searchResults = new List<(int index, int score)>();
 
             for (int i = 0; i < songManager.TotalSongs; i++) {
@@ -220,28 +276,23 @@ namespace RiqMenu.UI
                 }
             }
 
-            // Sort by score (higher is better) and take the results
             _filteredSongIndices = searchResults
                 .OrderByDescending(x => x.score)
                 .Select(x => x.index)
                 .ToList();
 
-            // Update selection to first result if available
             if (_filteredSongIndices.Count > 0) {
                 UpdateSelectionFromFiltered();
             }
         }
 
         private int CalculateFuzzyScore(string text, string query) {
-            if (string.IsNullOrEmpty(query)) return 0;
-            if (string.IsNullOrEmpty(text)) return 0;
+            if (string.IsNullOrEmpty(query) || string.IsNullOrEmpty(text)) return 0;
 
-            // Exact match gets highest score
             if (text.Contains(query)) {
                 return 1000 + (query.Length * 10);
             }
 
-            // Fuzzy matching - characters in order
             int score = 0;
             int textIndex = 0;
             int queryIndex = 0;
@@ -258,7 +309,6 @@ namespace RiqMenu.UI
                 textIndex++;
             }
 
-            // Bonus for matching all characters
             if (queryIndex == query.Length) {
                 score += 50;
             }
@@ -282,7 +332,6 @@ namespace RiqMenu.UI
         }
 
         private void TryPreviewCurrentSong() {
-            // Only preview if we've changed songs
             if (_selectedSong == _lastPreviewedSong) return;
 
             var songManager = RiqMenuSystemManager.Instance?.SongManager;
@@ -295,115 +344,332 @@ namespace RiqMenu.UI
 
             _lastPreviewedSong = _selectedSong;
 
-            // Only stop preview if one is currently playing
             if (audioManager.IsPreviewPlaying) {
                 audioManager.StopPreview();
             }
 
-            // Delegate to AudioManager: stream preview on-demand
             _isLoadingAudio = true;
             _loadingStartTime = Time.time;
             audioManager.PlayPreview(song);
         }
 
+        #endregion
+
+        #region Online Songs
+
+        private void HandleOnlineInput() {
+            // Handle search mode toggle
+            if (UnityEngine.Input.GetKeyDown(KeyCode.Tab)) {
+                _isOnlineSearchMode = !_isOnlineSearchMode;
+                if (_isOnlineSearchMode) {
+                    _onlineSearchQuery = "";
+                }
+                return;
+            }
+
+            // Handle sort toggle with S
+            if (!_isOnlineSearchMode && UnityEngine.Input.GetKeyDown(KeyCode.S)) {
+                _onlineSort = _onlineSort == "newest" ? "popular" : "newest";
+                LoadOnlineSongs();
+                return;
+            }
+
+            // Handle refresh with R
+            if (!_isOnlineSearchMode && UnityEngine.Input.GetKeyDown(KeyCode.R)) {
+                LoadOnlineSongs();
+                return;
+            }
+
+            if (_isOnlineSearchMode) {
+                HandleOnlineSearchInput();
+            } else {
+                HandleOnlineNormalInput();
+            }
+        }
+
+        private void HandleOnlineSearchInput() {
+            if (TempoInput.GetActionDown<Action>(Action.Cancel) || UnityEngine.Input.GetKeyDown(KeyCode.Tab)) {
+                _isOnlineSearchMode = false;
+                return;
+            }
+
+            if (TempoInput.GetActionDown<Action>(Action.Confirm)) {
+                if (!string.IsNullOrEmpty(_onlineSearchQuery)) {
+                    SearchOnlineSongs(_onlineSearchQuery);
+                    _isOnlineSearchMode = false;
+                }
+                return;
+            }
+
+            // Text input
+            if (UnityEngine.Input.GetKeyDown(KeyCode.Backspace)) {
+                if (_onlineSearchQuery.Length > 0) {
+                    _onlineSearchQuery = _onlineSearchQuery.Substring(0, _onlineSearchQuery.Length - 1);
+                }
+            }
+
+            string inputString = UnityEngine.Input.inputString;
+            foreach (char c in inputString) {
+                if (char.IsLetterOrDigit(c) || char.IsPunctuation(c) || c == ' ') {
+                    _onlineSearchQuery += c;
+                }
+            }
+
+            // Navigation in results while searching
+            if (_onlineSongs.Count > 0) {
+                if (TempoInput.GetActionDown<Action>(Action.Up)) {
+                    _onlineSelectedIndex = Mathf.Max(0, _onlineSelectedIndex - 1);
+                    UpdateOnlineScroll();
+                } else if (TempoInput.GetActionDown<Action>(Action.Down)) {
+                    _onlineSelectedIndex = Mathf.Min(_onlineSongs.Count - 1, _onlineSelectedIndex + 1);
+                    UpdateOnlineScroll();
+                }
+            }
+        }
+
+        private void HandleOnlineNormalInput() {
+            if (_onlineSongs.Count == 0) {
+                if (TempoInput.GetActionDown<Action>(Action.Cancel)) {
+                    Hide();
+                }
+                return;
+            }
+
+            if (TempoInput.GetActionDown(Action.Up)) {
+                _onlineSelectedIndex = Mathf.Max(0, _onlineSelectedIndex - 1);
+                UpdateOnlineScroll();
+            } else if (TempoInput.GetActionDown(Action.Down)) {
+                _onlineSelectedIndex = Mathf.Min(_onlineSongs.Count - 1, _onlineSelectedIndex + 1);
+                UpdateOnlineScroll();
+            } else if (UnityEngine.Input.GetKeyDown(KeyCode.PageUp)) {
+                _onlineSelectedIndex = Mathf.Max(0, _onlineSelectedIndex - VISIBLE_SONGS);
+                UpdateOnlineScroll();
+            } else if (UnityEngine.Input.GetKeyDown(KeyCode.PageDown)) {
+                _onlineSelectedIndex = Mathf.Min(_onlineSongs.Count - 1, _onlineSelectedIndex + VISIBLE_SONGS);
+                UpdateOnlineScroll();
+            } else if (TempoInput.GetActionDown(Action.Confirm)) {
+                DownloadSelectedSong();
+            } else if (TempoInput.GetActionDown<Action>(Action.Cancel)) {
+                Hide();
+            }
+        }
+
+        private void UpdateOnlineScroll() {
+            if (_onlineSelectedIndex < _onlineScrollOffset) {
+                _onlineScrollOffset = _onlineSelectedIndex;
+            } else if (_onlineSelectedIndex >= _onlineScrollOffset + VISIBLE_SONGS) {
+                _onlineScrollOffset = _onlineSelectedIndex - VISIBLE_SONGS + 1;
+            }
+        }
+
+        private void LoadOnlineSongs() {
+            _isOnlineLoading = true;
+            _onlineError = null;
+
+            _apiClient.GetSongs(_onlineSort, 1, (songs, error) => {
+                _isOnlineLoading = false;
+                if (error != null) {
+                    _onlineError = error;
+                } else {
+                    _onlineSongs = songs ?? new List<OnlineSong>();
+                    _onlineSelectedIndex = 0;
+                    _onlineScrollOffset = 0;
+                }
+            });
+        }
+
+        private void SearchOnlineSongs(string query) {
+            _isOnlineLoading = true;
+            _onlineError = null;
+
+            _apiClient.SearchSongs(query, (songs, error) => {
+                _isOnlineLoading = false;
+                if (error != null) {
+                    _onlineError = error;
+                } else {
+                    _onlineSongs = songs ?? new List<OnlineSong>();
+                    _onlineSelectedIndex = 0;
+                    _onlineScrollOffset = 0;
+                }
+            });
+        }
+
+        private void DownloadSelectedSong() {
+            if (_onlineSelectedIndex >= _onlineSongs.Count) return;
+
+            var song = _onlineSongs[_onlineSelectedIndex];
+            string songsFolder = GetSongsFolder();
+
+            if (songsFolder == null) {
+                _downloadStatus = "Error: Could not find songs folder";
+                return;
+            }
+
+            _isDownloading = true;
+            _downloadProgress = 0f;
+            _downloadStatus = $"Downloading {song.Title}...";
+
+            _apiClient.DownloadSong(song, songsFolder,
+                (filePath, error) => {
+                    _isDownloading = false;
+                    if (error != null) {
+                        _downloadStatus = $"Error: {error}";
+                    } else {
+                        _downloadStatus = $"Downloaded! Refresh local songs to play.";
+                        // Trigger song reload
+                        var songManager = RiqMenuSystemManager.Instance?.SongManager;
+                        songManager?.ReloadSongs();
+                    }
+                },
+                (progress) => {
+                    _downloadProgress = progress;
+                }
+            );
+        }
+
+        private string GetSongsFolder() {
+            string dataPath = Application.dataPath;
+            string songsPath = Path.Combine(dataPath, "StreamingAssets", "RiqMenu");
+            if (!Directory.Exists(songsPath)) {
+                try {
+                    Directory.CreateDirectory(songsPath);
+                } catch {
+                    return null;
+                }
+            }
+            return songsPath;
+        }
+
+        #endregion
+
+        #region Drawing
+
         private void DrawOverlay() {
+            // Background
             GUI.color = Color.black;
             GUI.Box(new Rect(0, 0, Screen.width, Screen.height), "");
             GUI.color = Color.white;
 
             float centerX = Screen.width / 2f;
             float centerY = Screen.height / 2f;
-            float boxWidth = 600f;
-            float boxHeight = 500f;
+            float boxWidth = 650f;
+            float boxHeight = 550f;
             Rect boxRect = new Rect(centerX - boxWidth/2, centerY - boxHeight/2, boxWidth, boxHeight);
 
             GUI.color = Color.gray;
             GUI.Box(boxRect, "");
             GUI.color = Color.white;
 
-            // Title with search mode indicator
-            string title = _isSearchMode ? "RiqMenu - Search Mode" : "RiqMenu - Custom Songs";
-            GUI.Label(new Rect(boxRect.x + 10, boxRect.y + 10, boxRect.width - 20, 30),
-                $"<size=16><color=white><b>{title}</b></color></size>");
+            // Draw tabs
+            DrawTabs(boxRect);
 
-            // Draw search box if in search mode
-            if (_isSearchMode) {
-                DrawSearchBox(boxRect);
+            // Draw content based on current tab
+            if (_currentTab == OverlayTab.Local) {
+                DrawLocalContent(boxRect);
+            } else {
+                DrawOnlineContent(boxRect);
             }
-
-            DrawSongList(boxRect);
-            DrawFooterInfo(boxRect);
         }
 
-        private void DrawSearchBox(Rect boxRect) {
-            float searchY = boxRect.y + 40;
-            float searchHeight = 25f;
+        private void DrawTabs(Rect boxRect) {
+            float tabY = boxRect.y + 5;
+            float tabWidth = 100f;
+            float tabHeight = 25f;
 
-            // Search box background
+            // Local tab
+            bool isLocalSelected = _currentTab == OverlayTab.Local;
+            GUI.color = isLocalSelected ? Color.green : Color.gray;
+            GUI.Box(new Rect(boxRect.x + 10, tabY, tabWidth, tabHeight), "");
+            GUI.color = Color.white;
+            GUI.Label(new Rect(boxRect.x + 10, tabY + 3, tabWidth, tabHeight),
+                $"<color={(isLocalSelected ? "white" : "gray")}><b>  Local</b></color>");
+
+            // Online tab
+            bool isOnlineSelected = _currentTab == OverlayTab.Online;
+            GUI.color = isOnlineSelected ? Color.cyan : Color.gray;
+            GUI.Box(new Rect(boxRect.x + 115, tabY, tabWidth, tabHeight), "");
+            GUI.color = Color.white;
+            GUI.Label(new Rect(boxRect.x + 115, tabY + 3, tabWidth, tabHeight),
+                $"<color={(isOnlineSelected ? "white" : "gray")}><b>  Online</b></color>");
+
+            // Tab hint
+            GUI.Label(new Rect(boxRect.x + boxRect.width - 130, tabY + 3, 120, tabHeight),
+                "<color=gray><size=11>L/R to switch tabs</size></color>");
+        }
+
+        private void DrawLocalContent(Rect boxRect) {
+            Rect contentRect = new Rect(boxRect.x, boxRect.y + 35, boxRect.width, boxRect.height - 35);
+
+            // Title
+            string title = _isSearchMode ? "Local Songs - Search" : "Local Songs";
+            GUI.Label(new Rect(contentRect.x + 10, contentRect.y + 5, contentRect.width - 20, 25),
+                $"<size=14><color=white><b>{title}</b></color></size>");
+
+            if (_isSearchMode) {
+                DrawLocalSearchBox(contentRect);
+            }
+
+            DrawLocalSongList(contentRect);
+            DrawLocalFooter(contentRect);
+        }
+
+        private void DrawLocalSearchBox(Rect contentRect) {
+            float searchY = contentRect.y + 30;
+
             GUI.color = Color.black;
-            GUI.Box(new Rect(boxRect.x + 10, searchY, boxRect.width - 20, searchHeight), "");
+            GUI.Box(new Rect(contentRect.x + 10, searchY, contentRect.width - 20, 22), "");
             GUI.color = Color.white;
 
-            // Search text with cursor
-            string displayText = _searchQuery;
-            if (Time.time % 1f < 0.5f) { // Blinking cursor
-                displayText += "|";
-            }
-
-            GUI.Label(new Rect(boxRect.x + 15, searchY + 3, boxRect.width - 30, searchHeight),
+            string displayText = _searchQuery + (Time.time % 1f < 0.5f ? "|" : "");
+            GUI.Label(new Rect(contentRect.x + 15, searchY + 2, contentRect.width - 30, 20),
                 $"<color=white>Search: {displayText}</color>");
 
-            // Search results count
-            if (_isSearchMode && !string.IsNullOrEmpty(_searchQuery)) {
-                GUI.Label(new Rect(boxRect.x + 10, searchY + 25, boxRect.width - 20, 20),
-                    $"<color=yellow>Found {_filteredSongIndices.Count} songs</color>");
+            if (!string.IsNullOrEmpty(_searchQuery)) {
+                GUI.Label(new Rect(contentRect.x + 10, searchY + 22, contentRect.width - 20, 18),
+                    $"<color=yellow><size=11>Found {_filteredSongIndices.Count} songs</size></color>");
             }
         }
 
-        private void DrawSongList(Rect boxRect) {
+        private void DrawLocalSongList(Rect contentRect) {
             var songManager = RiqMenuSystemManager.Instance?.SongManager;
             if (songManager == null) return;
 
-            // Adjust list position if in search mode
-            float listY = _isSearchMode ? boxRect.y + 90 : boxRect.y + 50;
-            float songHeight = 25f;
+            float listY = _isSearchMode ? contentRect.y + 75 : contentRect.y + 35;
+            float songHeight = 24f;
 
-            // Get the list of songs to display
             List<int> songsToDisplay;
-            int totalDisplayCount;
+            int totalCount;
 
             if (_isSearchMode && _filteredSongIndices.Count > 0) {
                 songsToDisplay = _filteredSongIndices;
-                totalDisplayCount = _filteredSongIndices.Count;
-
-                GUI.Label(new Rect(boxRect.x + 10, listY, boxRect.width - 20, 20),
-                    $"<color=white>Result {_filteredSelectedIndex + 1} of {totalDisplayCount} • ↑/↓ to navigate • Enter to play</color>");
+                totalCount = _filteredSongIndices.Count;
             } else if (_isSearchMode) {
-                // No search results
-                GUI.Label(new Rect(boxRect.x + 10, listY, boxRect.width - 20, 20),
-                    $"<color=yellow>No results found</color>");
+                GUI.Label(new Rect(contentRect.x + 10, listY + 20, contentRect.width - 20, 20),
+                    "<color=yellow>No results</color>");
                 return;
             } else {
-                // Normal mode - show all songs
                 songsToDisplay = Enumerable.Range(0, songManager.TotalSongs).ToList();
-                totalDisplayCount = songManager.TotalSongs;
-
-                GUI.Label(new Rect(boxRect.x + 10, listY, boxRect.width - 20, 20),
-                    $"<color=white>Song {_selectedSong + 1} of {totalDisplayCount} • ↑/↓ to navigate • Enter to play</color>");
+                totalCount = songManager.TotalSongs;
             }
 
-            listY += 30;
-
-            // Calculate visible range
-            int visibleStart, visibleEnd;
-            if (_isSearchMode) {
-                visibleStart = Mathf.Max(0, _filteredSelectedIndex - VISIBLE_SONGS / 2);
-                visibleEnd = Mathf.Min(visibleStart + VISIBLE_SONGS, songsToDisplay.Count);
-                visibleStart = Mathf.Max(0, visibleEnd - VISIBLE_SONGS);
-            } else {
-                visibleStart = _scrollOffset;
-                visibleEnd = Mathf.Min(visibleStart + VISIBLE_SONGS, songsToDisplay.Count);
+            if (totalCount == 0) {
+                GUI.Label(new Rect(contentRect.x + 10, listY + 20, contentRect.width - 20, 20),
+                    "<color=yellow>No songs found. Add .riq/.bop files to the RiqMenu folder.</color>");
+                return;
             }
+
+            // Song count
+            int displayIndex = _isSearchMode ? _filteredSelectedIndex : _selectedSong;
+            GUI.Label(new Rect(contentRect.x + 10, listY, contentRect.width - 20, 20),
+                $"<color=white><size=11>Song {displayIndex + 1} of {totalCount}</size></color>");
+
+            listY += 22;
+
+            int visibleStart = _isSearchMode
+                ? Mathf.Max(0, _filteredSelectedIndex - VISIBLE_SONGS / 2)
+                : _scrollOffset;
+            int visibleEnd = Mathf.Min(visibleStart + VISIBLE_SONGS, songsToDisplay.Count);
+            visibleStart = Mathf.Max(0, visibleEnd - VISIBLE_SONGS);
 
             for (int i = visibleStart; i < visibleEnd; i++) {
                 int songIndex = songsToDisplay[i];
@@ -411,94 +677,191 @@ namespace RiqMenu.UI
                 if (song == null) continue;
 
                 float songY = listY + (i - visibleStart) * songHeight;
-                Rect songRect = new Rect(boxRect.x + 20, songY, boxRect.width - 40, songHeight - 2);
-
-                // Highlight selected song
                 bool isSelected = _isSearchMode ? (i == _filteredSelectedIndex) : (songIndex == _selectedSong);
+
                 if (isSelected) {
                     GUI.color = Color.green;
-                    GUI.Box(new Rect(songRect.x - 5, songRect.y, songRect.width + 10, songRect.height), "");
+                    GUI.Box(new Rect(contentRect.x + 15, songY, contentRect.width - 30, songHeight - 2), "");
                     GUI.color = Color.white;
                 }
 
                 string displayTitle = song.SongTitle;
-                if (displayTitle.Length > 50) {
-                    displayTitle = displayTitle.Substring(0, 47) + "...";
-                }
-
-                // Highlight search matches
-                if (_isSearchMode && !string.IsNullOrEmpty(_searchQuery)) {
-                    displayTitle = HighlightSearchMatch(displayTitle, _searchQuery);
-                }
+                if (displayTitle.Length > 55) displayTitle = displayTitle.Substring(0, 52) + "...";
 
                 string status = song.audioClip != null ? "♪" : "○";
                 string statusColor = song.audioClip != null ? "green" : "gray";
 
-                GUI.Label(new Rect(songRect.x, songRect.y, 20, songRect.height),
-                    $"<color={statusColor}><size=14>{status}</size></color>");
-
-                GUI.Label(new Rect(songRect.x + 25, songRect.y, songRect.width - 25, songRect.height),
+                GUI.Label(new Rect(contentRect.x + 20, songY, 18, songHeight),
+                    $"<color={statusColor}><size=13>{status}</size></color>");
+                GUI.Label(new Rect(contentRect.x + 40, songY, contentRect.width - 60, songHeight),
                     $"<color=white>{displayTitle}</color>");
             }
-
-            if (_scrollOffset > 0) {
-                GUI.Label(new Rect(boxRect.x + boxRect.width - 30, listY - 25, 20, 20),
-                    "<color=yellow>▲</color>");
-            }
-            if (visibleEnd < totalDisplayCount) {
-                GUI.Label(new Rect(boxRect.x + boxRect.width - 30, listY + VISIBLE_SONGS * songHeight, 20, 20),
-                    "<color=yellow>▼</color>");
-            }
         }
 
-        private string HighlightSearchMatch(string text, string query) {
-            if (string.IsNullOrEmpty(query)) return text;
-
-            // Simple highlighting - wrap matched substring in yellow color
-            int index = text.ToLower().IndexOf(query.ToLower());
-            if (index >= 0) {
-                string before = text.Substring(0, index);
-                string match = text.Substring(index, query.Length);
-                string after = text.Substring(index + query.Length);
-                return $"{before}<color=yellow>{match}</color>{after}";
-            }
-            return text;
-        }
-
-        private void DrawFooterInfo(Rect boxRect) {
+        private void DrawLocalFooter(Rect contentRect) {
             var audioManager = RiqMenuSystemManager.Instance?.AudioManager;
+            float footerY = contentRect.y + contentRect.height - 85;
 
-            // Audio status line
+            // Audio status
             if (_isLoadingAudio) {
-                GUI.Label(new Rect(boxRect.x + 10, boxRect.y + boxRect.height - 70, boxRect.width - 20, 20),
-                    "<color=yellow>⌛ Loading audio...</color>");
-            } else if (audioManager != null && audioManager.IsPreviewPlaying) {
-                string previewInfo = audioManager.CurrentPreviewSong?.SongTitle ?? "Unknown";
-                if (previewInfo.Length > 40) {
-                    previewInfo = previewInfo.Substring(0, 37) + "...";
-                }
-                GUI.Label(new Rect(boxRect.x + 10, boxRect.y + boxRect.height - 70, boxRect.width - 20, 20),
-                    $"<color=yellow>♪ Now Playing: {previewInfo}</color>");
-            } else {
-                GUI.Label(new Rect(boxRect.x + 10, boxRect.y + boxRect.height - 70, boxRect.width - 20, 20),
-                    "<color=gray>Select a song to preview audio</color>");
+                GUI.Label(new Rect(contentRect.x + 10, footerY, contentRect.width - 20, 20),
+                    "<color=yellow>Loading audio...</color>");
+            } else if (audioManager?.IsPreviewPlaying == true) {
+                string previewInfo = audioManager.CurrentPreviewSong?.SongTitle ?? "";
+                if (previewInfo.Length > 45) previewInfo = previewInfo.Substring(0, 42) + "...";
+                GUI.Label(new Rect(contentRect.x + 10, footerY, contentRect.width - 20, 20),
+                    $"<color=yellow>Now Playing: {previewInfo}</color>");
             }
 
-            // Autoplay status line
+            // Autoplay
             string autoplayStatus = MixtapeLoaderCustom.autoplay ? "ON" : "OFF";
             string autoplayColor = MixtapeLoaderCustom.autoplay ? "green" : "red";
-            GUI.Label(new Rect(boxRect.x + 10, boxRect.y + boxRect.height - 50, boxRect.width - 20, 20),
-                     $"<color={autoplayColor}>Autoplay: {autoplayStatus}</color> <color=gray>(P to toggle)</color>");
+            GUI.Label(new Rect(contentRect.x + 10, footerY + 22, contentRect.width - 20, 20),
+                $"<color={autoplayColor}>Autoplay: {autoplayStatus}</color> <color=gray>(P)</color>");
 
-            // Controls help line
-            if (_isSearchMode) {
-                GUI.Label(new Rect(boxRect.x + 10, boxRect.y + boxRect.height - 30, boxRect.width - 20, 20),
-                         "<color=gray><size=12>Tab/Esc to exit • Enter to play • Backspace to delete • Ctrl+A to clear</size></color>");
-            } else {
-                GUI.Label(new Rect(boxRect.x + 10, boxRect.y + boxRect.height - 30, boxRect.width - 20, 20),
-                         "<color=gray><size=12>F1 to toggle • Esc to close • Enter to play • Tab to search • F2 to stop audio</size></color>");
+            // Controls
+            string controls = _isSearchMode
+                ? "Tab: exit search • Enter: play • Backspace: delete"
+                : "Tab: search • Enter: play • Esc: close";
+            GUI.Label(new Rect(contentRect.x + 10, footerY + 44, contentRect.width - 20, 20),
+                $"<color=gray><size=11>{controls}</size></color>");
+        }
+
+        private void DrawOnlineContent(Rect boxRect) {
+            Rect contentRect = new Rect(boxRect.x, boxRect.y + 35, boxRect.width, boxRect.height - 35);
+
+            // Title with sort
+            string sortLabel = _onlineSort == "newest" ? "Newest" : "Popular";
+            GUI.Label(new Rect(contentRect.x + 10, contentRect.y + 5, contentRect.width - 20, 25),
+                $"<size=14><color=white><b>Online Songs</b></color></size> <color=cyan><size=11>({sortLabel})</size></color>");
+
+            if (_isOnlineSearchMode) {
+                DrawOnlineSearchBox(contentRect);
+            }
+
+            // Download status
+            if (_isDownloading || _downloadStatus != null) {
+                DrawDownloadStatus(contentRect);
+            }
+
+            DrawOnlineSongList(contentRect);
+            DrawOnlineFooter(contentRect);
+        }
+
+        private void DrawOnlineSearchBox(Rect contentRect) {
+            float searchY = contentRect.y + 30;
+
+            GUI.color = Color.black;
+            GUI.Box(new Rect(contentRect.x + 10, searchY, contentRect.width - 20, 22), "");
+            GUI.color = Color.white;
+
+            string displayText = _onlineSearchQuery + (Time.time % 1f < 0.5f ? "|" : "");
+            GUI.Label(new Rect(contentRect.x + 15, searchY + 2, contentRect.width - 30, 20),
+                $"<color=white>Search: {displayText}</color> <color=gray><size=11>(Enter to search)</size></color>");
+        }
+
+        private void DrawDownloadStatus(Rect contentRect) {
+            float statusY = contentRect.y + (_isOnlineSearchMode ? 55 : 30);
+
+            if (_isDownloading) {
+                int progressPercent = Mathf.RoundToInt(_downloadProgress * 100);
+                GUI.Label(new Rect(contentRect.x + 10, statusY, contentRect.width - 20, 18),
+                    $"<color=cyan>Downloading... {progressPercent}%</color>");
+            } else if (_downloadStatus != null) {
+                string color = _downloadStatus.StartsWith("Error") ? "red" : "green";
+                GUI.Label(new Rect(contentRect.x + 10, statusY, contentRect.width - 20, 18),
+                    $"<color={color}>{_downloadStatus}</color>");
             }
         }
+
+        private void DrawOnlineSongList(Rect contentRect) {
+            float listY = contentRect.y + 55;
+            if (_isOnlineSearchMode) listY += 25;
+            if (_isDownloading || _downloadStatus != null) listY += 20;
+
+            float songHeight = 42f;
+
+            if (_isOnlineLoading) {
+                GUI.Label(new Rect(contentRect.x + 10, listY + 20, contentRect.width - 20, 20),
+                    "<color=cyan>Loading...</color>");
+                return;
+            }
+
+            if (_onlineError != null) {
+                GUI.Label(new Rect(contentRect.x + 10, listY + 20, contentRect.width - 20, 20),
+                    $"<color=red>Error: {_onlineError}</color>");
+                return;
+            }
+
+            if (_onlineSongs.Count == 0) {
+                GUI.Label(new Rect(contentRect.x + 10, listY + 20, contentRect.width - 20, 20),
+                    "<color=yellow>No songs found</color>");
+                return;
+            }
+
+            // Song count
+            GUI.Label(new Rect(contentRect.x + 10, listY, contentRect.width - 20, 18),
+                $"<color=white><size=11>Song {_onlineSelectedIndex + 1} of {_onlineSongs.Count}</size></color>");
+
+            listY += 20;
+
+            int visibleCount = 7;
+            int visibleStart = _onlineScrollOffset;
+            int visibleEnd = Mathf.Min(visibleStart + visibleCount, _onlineSongs.Count);
+
+            for (int i = visibleStart; i < visibleEnd; i++) {
+                var song = _onlineSongs[i];
+                float songY = listY + (i - visibleStart) * songHeight;
+                bool isSelected = i == _onlineSelectedIndex;
+
+                if (isSelected) {
+                    GUI.color = Color.cyan;
+                    GUI.Box(new Rect(contentRect.x + 15, songY, contentRect.width - 30, songHeight - 4), "");
+                    GUI.color = Color.white;
+                }
+
+                // File type badge
+                string fileType = (song.FileType ?? "riq").ToUpper();
+                string badgeColor = fileType == "BOP" ? "#ff9900" : "#00aaff";
+                GUI.Label(new Rect(contentRect.x + 20, songY + 6, 35, 18),
+                    $"<color={badgeColor}><size=11><b>{fileType}</b></size></color>");
+
+                string displayTitle = song.DisplayTitle;
+                if (displayTitle.Length > 45) displayTitle = displayTitle.Substring(0, 42) + "...";
+
+                // Title (offset for badge)
+                GUI.Label(new Rect(contentRect.x + 55, songY + 4, contentRect.width - 75, 20),
+                    $"<color=white>{displayTitle}</color>");
+
+                // Metadata line - build dynamically to avoid empty bullets
+                string creator = song.Creator ?? song.UploaderName ?? "Unknown";
+                var metaParts = new List<string> { $"by {creator}", song.FileSizeDisplay };
+                if (song.Bpm.HasValue) metaParts.Add($"{song.Bpm:F0} BPM");
+                metaParts.Add($"{song.DownloadCount} DLs");
+                string meta = string.Join(" • ", metaParts);
+
+                GUI.Label(new Rect(contentRect.x + 20, songY + 22, contentRect.width - 40, 18),
+                    $"<color=gray><size=11>{meta}</size></color>");
+            }
+        }
+
+        private void DrawOnlineFooter(Rect contentRect) {
+            float footerY = contentRect.y + contentRect.height - 55;
+
+            string controls = _isOnlineSearchMode
+                ? "Tab: exit search • Enter: search online"
+                : "Tab: search • Enter: download • S: sort • R: refresh • Esc: close";
+
+            GUI.Label(new Rect(contentRect.x + 10, footerY, contentRect.width - 20, 20),
+                $"<color=gray><size=11>{controls}</size></color>");
+
+            GUI.Label(new Rect(contentRect.x + 10, footerY + 20, contentRect.width - 20, 20),
+                "<color=gray><size=10>Songs from riqs.kabir.au</size></color>");
+        }
+
+        #endregion
+
+        #region Public Methods
 
         public void Show() {
             if (_isVisible) return;
@@ -509,11 +872,13 @@ namespace RiqMenu.UI
             _lastPreviewedSong = -1;
             _showTime = Time.time;
 
-            // Reset search state
             _isSearchMode = false;
+            _isOnlineSearchMode = false;
             _searchQuery = "";
-            _filteredSongIndices.Clear();
-            _filteredSelectedIndex = 0;
+            _onlineSearchQuery = "";
+            _downloadStatus = null;
+
+            _currentTab = OverlayTab.Local;
 
             var inputManager = RiqMenuSystemManager.Instance?.InputManager;
             inputManager?.BlockInput();
@@ -528,12 +893,6 @@ namespace RiqMenu.UI
             _isVisible = false;
             _lastPreviewedSong = -1;
 
-            // Reset search state
-            _isSearchMode = false;
-            _searchQuery = "";
-            _filteredSongIndices.Clear();
-            _filteredSelectedIndex = 0;
-
             var inputManager = RiqMenuSystemManager.Instance?.InputManager;
             inputManager?.UnblockInput();
 
@@ -544,11 +903,8 @@ namespace RiqMenu.UI
         }
 
         public void Toggle() {
-            if (_isVisible) {
-                Hide();
-            } else {
-                Show();
-            }
+            if (_isVisible) Hide();
+            else Show();
         }
 
         public void NavigateToSong(int songIndex) {
@@ -561,8 +917,8 @@ namespace RiqMenu.UI
             }
         }
 
-        public int GetSelectedSongIndex() {
-            return _selectedSong;
-        }
+        public int GetSelectedSongIndex() => _selectedSong;
+
+        #endregion
     }
 }

@@ -12,6 +12,7 @@ using RiqMenu.Core;
 using RiqMenu.Songs;
 using RiqMenu.Audio;
 using RiqMenu.UI;
+using RiqMenu.Updater;
 
 namespace RiqMenu
 {
@@ -59,6 +60,9 @@ namespace RiqMenu
             }
             _instance = this;
             DontDestroyOnLoad(gameObject);
+
+            // Check for updates first - will restart if update found
+            AutoUpdater.CheckAndUpdate(Logger);
 
             systemManager = RiqMenuSystemManager.Instance;
             systemManager.InitializeSystems();
