@@ -5,10 +5,8 @@ using UnityEngine.UIElements;
 using RiqMenu.Core;
 using RiqMenu.Online;
 
-namespace RiqMenu.UI.Toolkit
-{
-    public enum OverlayTab
-    {
+namespace RiqMenu.UI.Toolkit {
+    public enum OverlayTab {
         Local,
         Online
     }
@@ -17,8 +15,7 @@ namespace RiqMenu.UI.Toolkit
     /// Modern UI Toolkit-based overlay for song selection
     /// Styled to match the Riqs & Mods website
     /// </summary>
-    public class ToolkitOverlay : MonoBehaviour
-    {
+    public class ToolkitOverlay : MonoBehaviour {
         private UIDocument _uiDocument;
         private VisualElement _root;
         private VisualElement _overlay;
@@ -54,6 +51,9 @@ namespace RiqMenu.UI.Toolkit
         private int _currentPage = 1;
         private bool _hasMorePages = true;
         private string _currentSearchQuery = null;
+        private float _onlineSearchDebounceTime = 0f;
+        private string _pendingOnlineSearch = null;
+        private const float ONLINE_SEARCH_DEBOUNCE_DELAY = 0.4f;
 
         // Status
         private VisualElement _statusContainer;
@@ -85,15 +85,13 @@ namespace RiqMenu.UI.Toolkit
         private TextField _editorDifficultyField;
         private CustomSong _editingSong;
 
-        private void Awake()
-        {
+        private void Awake() {
             CreateUIDocument();
         }
 
         private AssetBundle _themeBundle;
 
-        private void CreateUIDocument()
-        {
+        private void CreateUIDocument() {
             // Create UIDocument component
             _uiDocument = gameObject.AddComponent<UIDocument>();
 
@@ -105,53 +103,42 @@ namespace RiqMenu.UI.Toolkit
             // Try to load theme from embedded AssetBundle resource
             ThemeStyleSheet defaultTheme = null;
 
-            try
-            {
+            try {
                 var assembly = System.Reflection.Assembly.GetExecutingAssembly();
-                using (var stream = assembly.GetManifestResourceStream("RiqMenu.Assets.riqmenu_theme"))
-                {
-                    if (stream != null)
-                    {
+                using (var stream = assembly.GetManifestResourceStream("RiqMenu.Assets.riqmenu_theme")) {
+                    if (stream != null) {
                         byte[] bundleData = new byte[stream.Length];
                         stream.Read(bundleData, 0, bundleData.Length);
                         _themeBundle = AssetBundle.LoadFromMemory(bundleData);
-                        if (_themeBundle != null)
-                        {
+                        if (_themeBundle != null) {
                             defaultTheme = _themeBundle.LoadAsset<ThemeStyleSheet>("UnityDefaultRuntimeTheme");
-                            if (defaultTheme != null)
-                            {
+                            if (defaultTheme != null) {
                                 Debug.Log("[ToolkitOverlay] Theme loaded from embedded AssetBundle");
                             }
                         }
                     }
-                    else
-                    {
+                    else {
                         Debug.LogWarning("[ToolkitOverlay] Embedded theme resource not found");
                     }
                 }
             }
-            catch (System.Exception ex)
-            {
+            catch (System.Exception ex) {
                 Debug.LogWarning($"[ToolkitOverlay] Failed to load embedded theme: {ex.Message}");
             }
 
             // Fallback: try to find any existing theme
-            if (defaultTheme == null)
-            {
+            if (defaultTheme == null) {
                 var allThemes = Resources.FindObjectsOfTypeAll<ThemeStyleSheet>();
-                if (allThemes.Length > 0)
-                {
+                if (allThemes.Length > 0) {
                     defaultTheme = allThemes[0];
                     Debug.Log($"[ToolkitOverlay] Using found theme: {defaultTheme.name}");
                 }
             }
 
-            if (defaultTheme != null)
-            {
+            if (defaultTheme != null) {
                 panelSettings.themeStyleSheet = defaultTheme;
             }
-            else
-            {
+            else {
                 Debug.LogError("[ToolkitOverlay] Could not find theme - UI will not render!");
             }
 
@@ -161,17 +148,14 @@ namespace RiqMenu.UI.Toolkit
             BuildUI();
         }
 
-        private void OnDestroy()
-        {
-            if (_themeBundle != null)
-            {
+        private void OnDestroy() {
+            if (_themeBundle != null) {
                 _themeBundle.Unload(true);
                 _themeBundle = null;
             }
         }
 
-        private void BuildUI()
-        {
+        private void BuildUI() {
             _root = _uiDocument.rootVisualElement;
 
             // Load styles
@@ -194,10 +178,8 @@ namespace RiqMenu.UI.Toolkit
             _overlay.tabIndex = -1; // Disable tab navigation
 
             // Intercept Tab key to prevent UI Toolkit's default tab navigation
-            _overlay.RegisterCallback<KeyDownEvent>(evt =>
-            {
-                if (evt.keyCode == KeyCode.Tab)
-                {
+            _overlay.RegisterCallback<KeyDownEvent>(evt => {
+                if (evt.keyCode == KeyCode.Tab) {
                     evt.StopPropagation();
                     evt.PreventDefault();
                     // Tab handling is done in HandleInput via UnityEngine.Input
@@ -214,8 +196,7 @@ namespace RiqMenu.UI.Toolkit
             CreateEditorModal();
         }
 
-        private void CreateEditorModal()
-        {
+        private void CreateEditorModal() {
             _editorModal = new VisualElement();
             _editorModal.name = "editor-modal";
             _editorModal.style.position = Position.Absolute;
@@ -342,8 +323,7 @@ namespace RiqMenu.UI.Toolkit
             _root.Add(_editorModal);
         }
 
-        private void ApplyTextFieldStyle(TextField field)
-        {
+        private void ApplyTextFieldStyle(TextField field) {
             field.style.backgroundColor = Color.white;
             field.style.borderTopWidth = 2;
             field.style.borderBottomWidth = 2;
@@ -363,8 +343,7 @@ namespace RiqMenu.UI.Toolkit
             field.style.paddingBottom = 8;
         }
 
-        private void OpenEditor()
-        {
+        private void OpenEditor() {
             if (_currentTab != OverlayTab.Local) return;
 
             var songManager = RiqMenuSystemManager.Instance?.SongManager;
@@ -386,16 +365,12 @@ namespace RiqMenu.UI.Toolkit
             _editorTitleField.schedule.Execute(() => _editorTitleField.Focus()).StartingIn(50);
         }
 
-        private void CloseEditor(bool save)
-        {
-            if (save && _editingSong != null)
-            {
+        private void CloseEditor(bool save) {
+            if (save && _editingSong != null) {
                 var songManager = RiqMenuSystemManager.Instance?.SongManager;
-                if (songManager != null)
-                {
+                if (songManager != null) {
                     float? bpm = null;
-                    if (float.TryParse(_editorBpmField.value, out float parsedBpm))
-                    {
+                    if (float.TryParse(_editorBpmField.value, out float parsedBpm)) {
                         bpm = parsedBpm;
                     }
 
@@ -418,8 +393,7 @@ namespace RiqMenu.UI.Toolkit
             _editingSong = null;
         }
 
-        private VisualElement CreateCard()
-        {
+        private VisualElement CreateCard() {
             var card = new VisualElement();
             card.name = "riq-card";
             ApplyCardStyle(card);
@@ -448,8 +422,7 @@ namespace RiqMenu.UI.Toolkit
             return card;
         }
 
-        private void ApplyCardStyle(VisualElement card)
-        {
+        private void ApplyCardStyle(VisualElement card) {
             card.style.width = 720;
             card.style.height = 620;
             card.style.backgroundColor = ParseColor(RiqMenuStyles.WarmWhite);
@@ -468,8 +441,7 @@ namespace RiqMenu.UI.Toolkit
             card.style.overflow = Overflow.Hidden;
         }
 
-        private VisualElement CreateTabs()
-        {
+        private VisualElement CreateTabs() {
             var container = new VisualElement();
             container.style.flexDirection = FlexDirection.Row;
             container.style.alignItems = Align.FlexEnd;
@@ -505,8 +477,7 @@ namespace RiqMenu.UI.Toolkit
             return container;
         }
 
-        private Button CreateTab(string text, bool active)
-        {
+        private Button CreateTab(string text, bool active) {
             var tab = new Button();
             tab.text = text;
             tab.style.paddingLeft = 24;
@@ -530,8 +501,7 @@ namespace RiqMenu.UI.Toolkit
             return tab;
         }
 
-        private void ApplyTabStyle(Button tab, bool active)
-        {
+        private void ApplyTabStyle(Button tab, bool active) {
             // Always have 3px borders to prevent shifting
             tab.style.borderTopWidth = 3;
             tab.style.borderLeftWidth = 3;
@@ -539,16 +509,14 @@ namespace RiqMenu.UI.Toolkit
             tab.style.marginBottom = -3;
             tab.style.paddingBottom = 15;
 
-            if (active)
-            {
+            if (active) {
                 tab.style.backgroundColor = ParseColor(RiqMenuStyles.WarmWhite);
                 tab.style.color = ParseColor(RiqMenuStyles.CyanDark);
                 tab.style.borderTopColor = ParseColor(RiqMenuStyles.GrayLighter);
                 tab.style.borderLeftColor = ParseColor(RiqMenuStyles.GrayLighter);
                 tab.style.borderRightColor = ParseColor(RiqMenuStyles.GrayLighter);
             }
-            else
-            {
+            else {
                 tab.style.backgroundColor = Color.clear;
                 tab.style.color = ParseColor(RiqMenuStyles.Gray);
                 // Transparent borders to keep same size
@@ -558,8 +526,7 @@ namespace RiqMenu.UI.Toolkit
             }
         }
 
-        private VisualElement CreateLocalContent()
-        {
+        private VisualElement CreateLocalContent() {
             var content = new VisualElement();
             content.style.flexGrow = 1;
             content.style.flexShrink = 1;
@@ -606,15 +573,12 @@ namespace RiqMenu.UI.Toolkit
             // Search
             _localSearchField = CreateSearchField("Search local songs...");
             _localSearchField.style.flexShrink = 0;
-            _localSearchField.RegisterValueChangedCallback(evt =>
-            {
+            _localSearchField.RegisterValueChangedCallback(evt => {
                 string newValue = evt.newValue;
-                if (newValue == "Search local songs..." || newValue == "")
-                {
+                if (newValue == "Search local songs..." || newValue == "") {
                     _localSearchQuery = "";
                 }
-                else
-                {
+                else {
                     _localSearchQuery = newValue;
                 }
                 _selectedLocalIndex = 0;
@@ -655,8 +619,7 @@ namespace RiqMenu.UI.Toolkit
             return content;
         }
 
-        private VisualElement CreateOnlineContent()
-        {
+        private VisualElement CreateOnlineContent() {
             var content = new VisualElement();
             content.style.flexGrow = 1;
             content.style.flexShrink = 1;
@@ -700,9 +663,24 @@ namespace RiqMenu.UI.Toolkit
 
             content.Add(titleRow);
 
-            // Search
+            // Search with debouncing
             _onlineSearchField = CreateSearchField("Search online songs...");
             _onlineSearchField.style.flexShrink = 0;
+            _onlineSearchField.RegisterValueChangedCallback(evt => {
+                string newValue = evt.newValue;
+                if (newValue == "Search online songs..." || newValue == "") {
+                    _pendingOnlineSearch = null;
+                    // If we had a search active, reload default songs
+                    if (!string.IsNullOrEmpty(_currentSearchQuery)) {
+                        _currentSearchQuery = null;
+                        LoadOnlineSongs();
+                    }
+                } else {
+                    // Debounce: set pending search and timer
+                    _pendingOnlineSearch = newValue;
+                    _onlineSearchDebounceTime = ONLINE_SEARCH_DEBOUNCE_DELAY;
+                }
+            });
             content.Add(_onlineSearchField);
 
             // Status container
@@ -722,8 +700,7 @@ namespace RiqMenu.UI.Toolkit
             return content;
         }
 
-        private void StyleScrollView(ScrollView scrollView)
-        {
+        private void StyleScrollView(ScrollView scrollView) {
             // Always visible to prevent content shifting
             scrollView.verticalScrollerVisibility = ScrollerVisibility.AlwaysVisible;
 
@@ -743,16 +720,14 @@ namespace RiqMenu.UI.Toolkit
 
             // Transparent track
             var slider = scroller.Q("unity-slider");
-            if (slider != null)
-            {
+            if (slider != null) {
                 slider.style.backgroundColor = Color.clear;
                 slider.style.marginTop = 0;
                 slider.style.marginBottom = 0;
             }
 
             var tracker = scroller.Q("unity-tracker");
-            if (tracker != null)
-            {
+            if (tracker != null) {
                 tracker.style.backgroundColor = Color.clear;
                 tracker.style.borderTopWidth = 0;
                 tracker.style.borderBottomWidth = 0;
@@ -762,8 +737,7 @@ namespace RiqMenu.UI.Toolkit
 
             // Simple thumb - no borders, no radius
             var dragger = scroller.Q("unity-dragger");
-            if (dragger != null)
-            {
+            if (dragger != null) {
                 dragger.style.backgroundColor = new Color(0.6f, 0.6f, 0.6f, 0.5f);
                 dragger.style.borderTopWidth = 0;
                 dragger.style.borderBottomWidth = 0;
@@ -772,14 +746,12 @@ namespace RiqMenu.UI.Toolkit
             }
 
             var draggerBorder = scroller.Q("unity-dragger-border");
-            if (draggerBorder != null)
-            {
+            if (draggerBorder != null) {
                 draggerBorder.style.display = DisplayStyle.None;
             }
         }
 
-        private TextField CreateSearchField(string placeholder)
-        {
+        private TextField CreateSearchField(string placeholder) {
             var field = new TextField();
             field.value = placeholder;
             field.style.height = 48;
@@ -808,11 +780,9 @@ namespace RiqMenu.UI.Toolkit
             field.style.backgroundColor = Color.white;
 
             // Style inner input after it's attached to visual tree
-            field.RegisterCallback<AttachToPanelEvent>(evt =>
-            {
+            field.RegisterCallback<AttachToPanelEvent>(evt => {
                 var input = field.Q<VisualElement>("unity-text-input");
-                if (input != null)
-                {
+                if (input != null) {
                     input.style.paddingTop = 0;
                     input.style.paddingBottom = 0;
                     input.style.backgroundColor = Color.clear;
@@ -827,20 +797,16 @@ namespace RiqMenu.UI.Toolkit
             });
 
             // Clear placeholder on focus
-            field.RegisterCallback<FocusInEvent>(evt =>
-            {
-                if (field.value == placeholder)
-                {
+            field.RegisterCallback<FocusInEvent>(evt => {
+                if (field.value == placeholder) {
                     field.value = "";
                     var inp = field.Q<VisualElement>("unity-text-input");
                     if (inp != null) inp.style.color = ParseColor(RiqMenuStyles.Charcoal);
                 }
             });
 
-            field.RegisterCallback<FocusOutEvent>(evt =>
-            {
-                if (string.IsNullOrEmpty(field.value))
-                {
+            field.RegisterCallback<FocusOutEvent>(evt => {
+                if (string.IsNullOrEmpty(field.value)) {
                     field.value = placeholder;
                     var inp = field.Q<VisualElement>("unity-text-input");
                     if (inp != null) inp.style.color = ParseColor(RiqMenuStyles.GrayLight);
@@ -850,26 +816,44 @@ namespace RiqMenu.UI.Toolkit
             return field;
         }
 
-        private VisualElement CreateFooter()
-        {
+        private VisualElement CreateFooter() {
             var footer = new VisualElement();
-            footer.style.flexDirection = FlexDirection.Row;
+            footer.style.flexDirection = FlexDirection.Column;
             footer.style.alignItems = Align.Center;
-            footer.style.justifyContent = Justify.Center;
             footer.style.flexShrink = 0;
             footer.style.paddingLeft = 24;
             footer.style.paddingRight = 24;
-            footer.style.paddingTop = 16;
-            footer.style.paddingBottom = 16;
+            footer.style.paddingTop = 12;
+            footer.style.paddingBottom = 12;
             footer.style.backgroundColor = ParseColor(RiqMenuStyles.Cream);
             footer.style.borderTopWidth = 3;
             footer.style.borderTopColor = ParseColor(RiqMenuStyles.GrayLighter);
 
-            var keys = new string[] { "Enter", "W/S", "A/D", "Tab", "E", "P", "M", "Esc" };
-            var actions = new string[] { "Play", "Nav", "Tab", "Search", "Edit", "Auto", "Mute", "Exit" };
+            // Row 1: Enter, W/S, A/D, Tab
+            var row1Keys = new string[] { "Enter", "W/S", "A/D", "Tab" };
+            var row1Actions = new string[] { "Play", "Navigate", "Switch Tab", "Search" };
 
-            for (int i = 0; i < keys.Length; i++)
-            {
+            // Row 2: E, P, M, Esc
+            var row2Keys = new string[] { "E", "P", "M", "Esc" };
+            var row2Actions = new string[] { "Edit", "Auto-Play", "Mute", "Exit" };
+
+            var row1 = CreateHelpRow(row1Keys, row1Actions);
+            row1.style.marginBottom = 8;
+            footer.Add(row1);
+
+            var row2 = CreateHelpRow(row2Keys, row2Actions);
+            footer.Add(row2);
+
+            return footer;
+        }
+
+        private VisualElement CreateHelpRow(string[] keys, string[] actions) {
+            var row = new VisualElement();
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.alignItems = Align.Center;
+            row.style.justifyContent = Justify.Center;
+
+            for (int i = 0; i < keys.Length; i++) {
                 var keyLabel = new Label(keys[i]);
                 keyLabel.style.paddingLeft = 10;
                 keyLabel.style.paddingRight = 10;
@@ -891,21 +875,20 @@ namespace RiqMenu.UI.Toolkit
                 keyLabel.style.fontSize = 11;
                 keyLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
                 keyLabel.style.color = ParseColor(RiqMenuStyles.Charcoal);
-                footer.Add(keyLabel);
+                row.Add(keyLabel);
 
                 var actionLabel = new Label(actions[i]);
                 actionLabel.style.fontSize = 12;
                 actionLabel.style.color = ParseColor(RiqMenuStyles.Gray);
                 actionLabel.style.marginLeft = 8;
-                actionLabel.style.marginRight = 28;
-                footer.Add(actionLabel);
+                actionLabel.style.marginRight = 32;
+                row.Add(actionLabel);
             }
 
-            return footer;
+            return row;
         }
 
-        private VisualElement CreateSongItem(string title, string creator, string fileType, int? bpm, int? downloads, bool selected)
-        {
+        private VisualElement CreateSongItem(string title, string creator, string fileType, int? bpm, int? downloads, bool selected) {
             var item = new VisualElement();
             item.style.flexDirection = FlexDirection.Column;
             item.style.paddingLeft = 20;
@@ -922,16 +905,14 @@ namespace RiqMenu.UI.Toolkit
             item.style.borderLeftWidth = 3;
             item.style.borderRightWidth = 3;
 
-            if (selected)
-            {
+            if (selected) {
                 item.style.backgroundColor = ParseColor("#E0F7FF"); // Lighter cyan for selection
                 item.style.borderTopColor = ParseColor(RiqMenuStyles.Cyan);
                 item.style.borderBottomColor = ParseColor(RiqMenuStyles.Cyan);
                 item.style.borderLeftColor = ParseColor(RiqMenuStyles.Cyan);
                 item.style.borderRightColor = ParseColor(RiqMenuStyles.Cyan);
             }
-            else
-            {
+            else {
                 item.style.backgroundColor = Color.white;
                 item.style.borderTopColor = ParseColor(RiqMenuStyles.GrayLighter);
                 item.style.borderBottomColor = ParseColor(RiqMenuStyles.GrayLighter);
@@ -969,15 +950,13 @@ namespace RiqMenu.UI.Toolkit
             creatorLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
             meta.Add(creatorLabel);
 
-            if (bpm.HasValue)
-            {
+            if (bpm.HasValue) {
                 var bpmBadge = CreateBadge($"{bpm} BPM", "bpm");
                 meta.Add(bpmBadge);
             }
 
             // Only show downloads if it has a value (for online songs)
-            if (downloads.HasValue)
-            {
+            if (downloads.HasValue) {
                 var dlBadge = CreateBadge($"{downloads} DLs", "downloads");
                 meta.Add(dlBadge);
             }
@@ -987,8 +966,7 @@ namespace RiqMenu.UI.Toolkit
             return item;
         }
 
-        private VisualElement CreateBadge(string text, string type)
-        {
+        private VisualElement CreateBadge(string text, string type) {
             var badge = new Label(text);
             badge.style.paddingLeft = 10;
             badge.style.paddingRight = 10;
@@ -1006,8 +984,7 @@ namespace RiqMenu.UI.Toolkit
             badge.style.borderLeftWidth = 2;
             badge.style.borderRightWidth = 2;
 
-            switch (type)
-            {
+            switch (type) {
                 case "riq":
                     badge.style.backgroundColor = ParseColor(RiqMenuStyles.CyanLight);
                     badge.style.color = ParseColor(RiqMenuStyles.CyanDark);
@@ -1045,8 +1022,7 @@ namespace RiqMenu.UI.Toolkit
             return badge;
         }
 
-        private void SwitchTab(OverlayTab tab)
-        {
+        private void SwitchTab(OverlayTab tab) {
             if (_currentTab == tab) return;
 
             // Stop audio preview when switching tabs
@@ -1059,12 +1035,10 @@ namespace RiqMenu.UI.Toolkit
             _localContent.style.display = tab == OverlayTab.Local ? DisplayStyle.Flex : DisplayStyle.None;
             _onlineContent.style.display = tab == OverlayTab.Online ? DisplayStyle.Flex : DisplayStyle.None;
 
-            if (tab == OverlayTab.Online && _onlineSongs.Count == 0)
-            {
+            if (tab == OverlayTab.Online && _onlineSongs.Count == 0) {
                 LoadOnlineSongs();
             }
-            else if (tab == OverlayTab.Local)
-            {
+            else if (tab == OverlayTab.Local) {
                 // Reload songs from disk (may have new downloads)
                 var songManager = RiqMenuSystemManager.Instance?.SongManager;
                 songManager?.ReloadSongs();
@@ -1075,20 +1049,17 @@ namespace RiqMenu.UI.Toolkit
             }
         }
 
-        private void LoadOnlineSongs()
-        {
+        private void LoadOnlineSongs() {
             _isLoading = true;
             _currentPage = 1;
             _hasMorePages = true;
             _currentSearchQuery = null;
             ShowStatus("Loading songs...", "loading");
 
-            _apiClient.GetSongs(_onlineSort, 1, (songs, error) =>
-            {
+            _apiClient.GetSongs(_onlineSort, 1, (songs, error) => {
                 _isLoading = false;
 
-                if (error != null)
-                {
+                if (error != null) {
                     ShowStatus($"Error: {error}", "error");
                     return;
                 }
@@ -1101,25 +1072,21 @@ namespace RiqMenu.UI.Toolkit
             });
         }
 
-        private void LoadMoreOnlineSongs()
-        {
+        private void LoadMoreOnlineSongs() {
             if (_isLoading || !_hasMorePages) return;
 
             _isLoading = true;
             _currentPage++;
 
-            RiqsApiClient.SongsCallback callback = (songs, error) =>
-            {
+            RiqsApiClient.SongsCallback callback = (songs, error) => {
                 _isLoading = false;
 
-                if (error != null)
-                {
+                if (error != null) {
                     _currentPage--; // Revert page increment on error
                     return;
                 }
 
-                if (songs == null || songs.Count == 0)
-                {
+                if (songs == null || songs.Count == 0) {
                     _hasMorePages = false;
                     return;
                 }
@@ -1131,8 +1098,7 @@ namespace RiqMenu.UI.Toolkit
                 _onlineSongs.AddRange(songs);
 
                 // Add new song elements to the list
-                for (int i = 0; i < songs.Count; i++)
-                {
+                for (int i = 0; i < songs.Count; i++) {
                     var song = songs[i];
                     int songIndex = startIndex + i;
                     var item = CreateSongItem(
@@ -1152,25 +1118,21 @@ namespace RiqMenu.UI.Toolkit
                 }
             };
 
-            if (!string.IsNullOrEmpty(_currentSearchQuery))
-            {
+            if (!string.IsNullOrEmpty(_currentSearchQuery)) {
                 // For search, we'd need paginated search - for now just don't load more
                 _hasMorePages = false;
                 _isLoading = false;
             }
-            else
-            {
+            else {
                 _apiClient.GetSongs(_onlineSort, _currentPage, callback);
             }
         }
 
-        private void RefreshOnlineSongList()
-        {
+        private void RefreshOnlineSongList() {
             _onlineSongList.Clear();
             _onlineSongElements.Clear();
 
-            for (int i = 0; i < _onlineSongs.Count; i++)
-            {
+            for (int i = 0; i < _onlineSongs.Count; i++) {
                 var song = _onlineSongs[i];
                 var item = CreateSongItem(
                     song.DisplayTitle,
@@ -1189,8 +1151,7 @@ namespace RiqMenu.UI.Toolkit
             }
         }
 
-        public void RefreshLocalSongList()
-        {
+        public void RefreshLocalSongList() {
             _localSongList.Clear();
             _localSongElements.Clear();
             _filteredLocalIndices.Clear();
@@ -1200,43 +1161,36 @@ namespace RiqMenu.UI.Toolkit
 
             // Build filtered list based on search query
             var scoredSongs = new List<(int index, int score)>();
-            for (int i = 0; i < songManager.TotalSongs; i++)
-            {
+            for (int i = 0; i < songManager.TotalSongs; i++) {
                 var song = songManager.GetSong(i);
                 if (song == null) continue;
 
-                if (string.IsNullOrEmpty(_localSearchQuery))
-                {
+                if (string.IsNullOrEmpty(_localSearchQuery)) {
                     scoredSongs.Add((i, 0));
                 }
-                else
-                {
+                else {
                     int titleScore = CalculateFuzzyScore(song.SongTitle ?? "", _localSearchQuery);
                     int creatorScore = CalculateFuzzyScore(song.Creator ?? "", _localSearchQuery);
                     int bestScore = Mathf.Max(titleScore, creatorScore);
-                    if (bestScore > 0)
-                    {
+                    if (bestScore > 0) {
                         scoredSongs.Add((i, bestScore));
                     }
                 }
             }
 
             // Sort by score if searching
-            if (!string.IsNullOrEmpty(_localSearchQuery))
-            {
+            if (!string.IsNullOrEmpty(_localSearchQuery)) {
                 scoredSongs.Sort((a, b) => b.score.CompareTo(a.score));
             }
 
             // Update count label
             var countLabel = _localContent.Q<Label>("local-count");
-            if (countLabel != null)
-            {
+            if (countLabel != null) {
                 countLabel.text = $"{scoredSongs.Count} songs";
             }
 
             // Create UI elements for filtered songs
-            for (int displayIndex = 0; displayIndex < scoredSongs.Count; displayIndex++)
-            {
+            for (int displayIndex = 0; displayIndex < scoredSongs.Count; displayIndex++) {
                 int actualIndex = scoredSongs[displayIndex].index;
                 _filteredLocalIndices.Add(actualIndex);
 
@@ -1262,14 +1216,12 @@ namespace RiqMenu.UI.Toolkit
             }
 
             // Reset selection if out of bounds
-            if (_selectedLocalIndex >= _localSongElements.Count)
-            {
+            if (_selectedLocalIndex >= _localSongElements.Count) {
                 _selectedLocalIndex = Mathf.Max(0, _localSongElements.Count - 1);
             }
         }
 
-        private int CalculateFuzzyScore(string text, string query)
-        {
+        private int CalculateFuzzyScore(string text, string query) {
             if (string.IsNullOrEmpty(query) || string.IsNullOrEmpty(text)) return 0;
 
             string lowerText = text.ToLower();
@@ -1282,16 +1234,13 @@ namespace RiqMenu.UI.Toolkit
             // Fuzzy matching
             int score = 0, textIndex = 0, queryIndex = 0, consecutiveMatches = 0;
 
-            while (textIndex < lowerText.Length && queryIndex < lowerQuery.Length)
-            {
-                if (lowerText[textIndex] == lowerQuery[queryIndex])
-                {
+            while (textIndex < lowerText.Length && queryIndex < lowerQuery.Length) {
+                if (lowerText[textIndex] == lowerQuery[queryIndex]) {
                     score += 10 + consecutiveMatches;
                     consecutiveMatches++;
                     queryIndex++;
                 }
-                else
-                {
+                else {
                     consecutiveMatches = 0;
                 }
                 textIndex++;
@@ -1303,20 +1252,17 @@ namespace RiqMenu.UI.Toolkit
             return score;
         }
 
-        private void SelectLocalSong(int index)
-        {
+        private void SelectLocalSong(int index) {
             if (index == _selectedLocalIndex) return;
 
             // Update visual state
-            if (_selectedLocalIndex < _localSongElements.Count)
-            {
+            if (_selectedLocalIndex < _localSongElements.Count) {
                 ApplySongItemStyle(_localSongElements[_selectedLocalIndex], false);
             }
 
             _selectedLocalIndex = index;
 
-            if (_selectedLocalIndex < _localSongElements.Count)
-            {
+            if (_selectedLocalIndex < _localSongElements.Count) {
                 ApplySongItemStyle(_localSongElements[_selectedLocalIndex], true);
             }
 
@@ -1324,8 +1270,7 @@ namespace RiqMenu.UI.Toolkit
             TryPreviewCurrentSong();
         }
 
-        private void TryPreviewCurrentSong()
-        {
+        private void TryPreviewCurrentSong() {
             if (_currentTab != OverlayTab.Local) return;
             if (_selectedLocalIndex == _lastPreviewedSong) return;
 
@@ -1344,8 +1289,7 @@ namespace RiqMenu.UI.Toolkit
 
             _lastPreviewedSong = _selectedLocalIndex;
 
-            if (audioManager.IsPreviewPlaying)
-            {
+            if (audioManager.IsPreviewPlaying) {
                 audioManager.StopPreview();
             }
 
@@ -1354,42 +1298,38 @@ namespace RiqMenu.UI.Toolkit
             audioManager.PlayPreview(song);
         }
 
-        private void StopPreview()
-        {
+        private void StopPreview() {
             var audioManager = RiqMenuSystemManager.Instance?.AudioManager;
             audioManager?.StopPreview();
             _lastPreviewedSong = -1;
         }
 
-        private void SelectOnlineSong(int index)
-        {
+        private void SelectOnlineSong(int index) {
+            // Bounds check - don't select if list is empty or index invalid
+            if (_onlineSongElements.Count == 0) return;
+            if (index < 0 || index >= _onlineSongElements.Count) return;
             if (index == _selectedOnlineIndex) return;
 
-            if (_selectedOnlineIndex < _onlineSongElements.Count)
-            {
+            if (_selectedOnlineIndex >= 0 && _selectedOnlineIndex < _onlineSongElements.Count) {
                 ApplySongItemStyle(_onlineSongElements[_selectedOnlineIndex], false);
             }
 
             _selectedOnlineIndex = index;
 
-            if (_selectedOnlineIndex < _onlineSongElements.Count)
-            {
+            if (_selectedOnlineIndex >= 0 && _selectedOnlineIndex < _onlineSongElements.Count) {
                 ApplySongItemStyle(_onlineSongElements[_selectedOnlineIndex], true);
             }
         }
 
-        private void ApplySongItemStyle(VisualElement item, bool selected)
-        {
-            if (selected)
-            {
+        private void ApplySongItemStyle(VisualElement item, bool selected) {
+            if (selected) {
                 item.style.backgroundColor = ParseColor("#E0F7FF"); // Lighter cyan for selection
                 item.style.borderTopColor = ParseColor(RiqMenuStyles.Cyan);
                 item.style.borderBottomColor = ParseColor(RiqMenuStyles.Cyan);
                 item.style.borderLeftColor = ParseColor(RiqMenuStyles.Cyan);
                 item.style.borderRightColor = ParseColor(RiqMenuStyles.Cyan);
             }
-            else
-            {
+            else {
                 item.style.backgroundColor = Color.white;
                 item.style.borderTopColor = ParseColor(RiqMenuStyles.GrayLighter);
                 item.style.borderBottomColor = ParseColor(RiqMenuStyles.GrayLighter);
@@ -1398,8 +1338,7 @@ namespace RiqMenu.UI.Toolkit
             }
         }
 
-        private void ShowStatus(string message, string type)
-        {
+        private void ShowStatus(string message, string type) {
             _statusContainer.Clear();
             _statusContainer.style.display = DisplayStyle.Flex;
 
@@ -1416,8 +1355,7 @@ namespace RiqMenu.UI.Toolkit
             status.style.fontSize = 13;
             status.style.unityFontStyleAndWeight = FontStyle.Bold;
 
-            switch (type)
-            {
+            switch (type) {
                 case "loading":
                     status.style.backgroundColor = ParseColor(RiqMenuStyles.CyanLight);
                     status.style.color = ParseColor(RiqMenuStyles.CyanDark);
@@ -1435,21 +1373,27 @@ namespace RiqMenu.UI.Toolkit
             _statusContainer.Add(status);
         }
 
-        private void HideStatus()
-        {
+        private void HideStatus() {
             _statusContainer.style.display = DisplayStyle.None;
         }
 
-        private void Update()
-        {
+        private void Update() {
             if (!_isVisible) return;
 
             // Update audio status display
             UpdateAudioStatus();
 
+            // Handle online search debounce
+            if (_onlineSearchDebounceTime > 0) {
+                _onlineSearchDebounceTime -= Time.deltaTime;
+                if (_onlineSearchDebounceTime <= 0 && !string.IsNullOrEmpty(_pendingOnlineSearch)) {
+                    ExecuteOnlineSearch(_pendingOnlineSearch);
+                    _pendingOnlineSearch = null;
+                }
+            }
+
             // Ignore input briefly after opening
-            if (_inputDelayTimer > 0)
-            {
+            if (_inputDelayTimer > 0) {
                 _inputDelayTimer -= Time.deltaTime;
                 return;
             }
@@ -1457,34 +1401,49 @@ namespace RiqMenu.UI.Toolkit
             HandleInput();
         }
 
-        private void HandleInput()
-        {
+        private void ExecuteOnlineSearch(string query) {
+            _isLoading = true;
+            _currentSearchQuery = query;
+            _currentPage = 1;
+            _hasMorePages = false; // Search doesn't support pagination yet
+            ShowStatus($"Searching for \"{query}\"...", "loading");
+
+            _apiClient.SearchSongs(query, (songs, error) => {
+                _isLoading = false;
+
+                if (error != null) {
+                    ShowStatus($"Error: {error}", "error");
+                    return;
+                }
+
+                _onlineSongs = songs ?? new List<OnlineSong>();
+                _selectedOnlineIndex = 0;
+                HideStatus();
+                RefreshOnlineSongList();
+            });
+        }
+
+        private void HandleInput() {
             // Skip input for one frame after editor closes to prevent Enter from playing song
-            if (_editorJustClosed)
-            {
+            if (_editorJustClosed) {
                 _editorJustClosed = false;
                 return;
             }
 
             // Handle editor modal input separately
-            if (_isEditorOpen)
-            {
-                if (UnityEngine.Input.GetKeyDown(KeyCode.Escape))
-                {
+            if (_isEditorOpen) {
+                if (UnityEngine.Input.GetKeyDown(KeyCode.Escape)) {
                     CloseEditor(false);
                 }
-                else if (UnityEngine.Input.GetKeyDown(KeyCode.Return) || UnityEngine.Input.GetKeyDown(KeyCode.KeypadEnter))
-                {
+                else if (UnityEngine.Input.GetKeyDown(KeyCode.Return) || UnityEngine.Input.GetKeyDown(KeyCode.KeypadEnter)) {
                     CloseEditor(true);
                 }
                 return; // Don't process other input while editor is open
             }
 
             // Escape always works - exits search mode or closes overlay
-            if (UnityEngine.Input.GetKeyDown(KeyCode.Escape))
-            {
-                if (_isSearchMode)
-                {
+            if (UnityEngine.Input.GetKeyDown(KeyCode.Escape)) {
+                if (_isSearchMode) {
                     ExitSearchMode();
                     return;
                 }
@@ -1493,128 +1452,104 @@ namespace RiqMenu.UI.Toolkit
             }
 
             // If in search mode, only allow Escape, Enter, or Tab to exit
-            if (_isSearchMode)
-            {
+            if (_isSearchMode) {
                 // Enter or Tab while searching exits search mode and keeps results
                 if (UnityEngine.Input.GetKeyDown(KeyCode.Return) ||
                     UnityEngine.Input.GetKeyDown(KeyCode.KeypadEnter) ||
-                    UnityEngine.Input.GetKeyDown(KeyCode.Tab))
-                {
+                    UnityEngine.Input.GetKeyDown(KeyCode.Tab)) {
                     ExitSearchMode();
                 }
                 return; // Skip all other input while typing
             }
 
             // Tab to enter search mode
-            if (UnityEngine.Input.GetKeyDown(KeyCode.Tab))
-            {
+            if (UnityEngine.Input.GetKeyDown(KeyCode.Tab)) {
                 EnterSearchMode();
                 return;
             }
 
             // E to edit metadata (Local tab only)
-            if (UnityEngine.Input.GetKeyDown(KeyCode.E) && _currentTab == OverlayTab.Local)
-            {
+            if (UnityEngine.Input.GetKeyDown(KeyCode.E) && _currentTab == OverlayTab.Local) {
                 OpenEditor();
                 return;
             }
 
             // Tab switching with arrows or A/D
-            if (UnityEngine.Input.GetKeyDown(KeyCode.LeftArrow) || UnityEngine.Input.GetKeyDown(KeyCode.A))
-            {
+            if (UnityEngine.Input.GetKeyDown(KeyCode.LeftArrow) || UnityEngine.Input.GetKeyDown(KeyCode.A)) {
                 SwitchTab(OverlayTab.Local);
             }
-            else if (UnityEngine.Input.GetKeyDown(KeyCode.RightArrow) || UnityEngine.Input.GetKeyDown(KeyCode.D))
-            {
+            else if (UnityEngine.Input.GetKeyDown(KeyCode.RightArrow) || UnityEngine.Input.GetKeyDown(KeyCode.D)) {
                 SwitchTab(OverlayTab.Online);
             }
 
             // Autoplay toggle (P key) - only in Local tab
-            if (UnityEngine.Input.GetKeyDown(KeyCode.P) && _currentTab == OverlayTab.Local)
-            {
+            if (UnityEngine.Input.GetKeyDown(KeyCode.P) && _currentTab == OverlayTab.Local) {
                 MixtapeLoaderCustom.autoplay = !MixtapeLoaderCustom.autoplay;
                 UpdateAutoplayLabel();
             }
 
             // Mute toggle (M key)
-            if (UnityEngine.Input.GetKeyDown(KeyCode.M))
-            {
+            if (UnityEngine.Input.GetKeyDown(KeyCode.M)) {
                 var audioManager = RiqMenuSystemManager.Instance?.AudioManager;
                 audioManager?.ToggleMute();
             }
 
             // Navigation
-            if (UnityEngine.Input.GetKeyDown(KeyCode.UpArrow) || UnityEngine.Input.GetKeyDown(KeyCode.W))
-            {
-                if (_currentTab == OverlayTab.Local)
-                {
+            if (UnityEngine.Input.GetKeyDown(KeyCode.UpArrow) || UnityEngine.Input.GetKeyDown(KeyCode.W)) {
+                if (_currentTab == OverlayTab.Local) {
                     SelectLocalSong(Mathf.Max(0, _selectedLocalIndex - 1));
                     ScrollToSelectedLocal();
                 }
-                else
-                {
+                else {
                     SelectOnlineSong(Mathf.Max(0, _selectedOnlineIndex - 1));
                     ScrollToSelectedOnline();
                 }
             }
-            else if (UnityEngine.Input.GetKeyDown(KeyCode.DownArrow) || UnityEngine.Input.GetKeyDown(KeyCode.S))
-            {
-                if (_currentTab == OverlayTab.Local)
-                {
+            else if (UnityEngine.Input.GetKeyDown(KeyCode.DownArrow) || UnityEngine.Input.GetKeyDown(KeyCode.S)) {
+                if (_currentTab == OverlayTab.Local) {
                     SelectLocalSong(Mathf.Min(_localSongElements.Count - 1, _selectedLocalIndex + 1));
                     ScrollToSelectedLocal();
                 }
-                else
-                {
+                else {
                     SelectOnlineSong(Mathf.Min(_onlineSongElements.Count - 1, _selectedOnlineIndex + 1));
                     ScrollToSelectedOnline();
 
                     // Load more when near the bottom (within 5 items)
-                    if (_selectedOnlineIndex >= _onlineSongElements.Count - 5)
-                    {
+                    if (_selectedOnlineIndex >= _onlineSongElements.Count - 5) {
                         LoadMoreOnlineSongs();
                     }
                 }
             }
             // Page Up/Down navigation
-            else if (UnityEngine.Input.GetKeyDown(KeyCode.PageUp))
-            {
-                if (_currentTab == OverlayTab.Local)
-                {
+            else if (UnityEngine.Input.GetKeyDown(KeyCode.PageUp)) {
+                if (_currentTab == OverlayTab.Local) {
                     SelectLocalSong(Mathf.Max(0, _selectedLocalIndex - PAGE_SIZE));
                     ScrollToSelectedLocal();
                 }
-                else
-                {
+                else {
                     SelectOnlineSong(Mathf.Max(0, _selectedOnlineIndex - PAGE_SIZE));
                     ScrollToSelectedOnline();
                 }
             }
-            else if (UnityEngine.Input.GetKeyDown(KeyCode.PageDown))
-            {
-                if (_currentTab == OverlayTab.Local)
-                {
+            else if (UnityEngine.Input.GetKeyDown(KeyCode.PageDown)) {
+                if (_currentTab == OverlayTab.Local) {
                     SelectLocalSong(Mathf.Min(_localSongElements.Count - 1, _selectedLocalIndex + PAGE_SIZE));
                     ScrollToSelectedLocal();
                 }
-                else
-                {
+                else {
                     SelectOnlineSong(Mathf.Min(_onlineSongElements.Count - 1, _selectedOnlineIndex + PAGE_SIZE));
                     ScrollToSelectedOnline();
 
                     // Load more when near the bottom
-                    if (_selectedOnlineIndex >= _onlineSongElements.Count - 5)
-                    {
+                    if (_selectedOnlineIndex >= _onlineSongElements.Count - 5) {
                         LoadMoreOnlineSongs();
                     }
                 }
             }
 
             // Selection
-            if (UnityEngine.Input.GetKeyDown(KeyCode.Return) || UnityEngine.Input.GetKeyDown(KeyCode.KeypadEnter))
-            {
-                if (_currentTab == OverlayTab.Local)
-                {
+            if (UnityEngine.Input.GetKeyDown(KeyCode.Return) || UnityEngine.Input.GetKeyDown(KeyCode.KeypadEnter)) {
+                if (_currentTab == OverlayTab.Local) {
                     // Get actual song index from filtered list
                     int actualIndex = _filteredLocalIndices.Count > 0 && _selectedLocalIndex < _filteredLocalIndices.Count
                         ? _filteredLocalIndices[_selectedLocalIndex]
@@ -1622,8 +1557,7 @@ namespace RiqMenu.UI.Toolkit
                     OnSongSelected?.Invoke(actualIndex);
                     Hide();
                 }
-                else
-                {
+                else {
                     // Download selected online song
                     DownloadSelectedSong();
                 }
@@ -1631,8 +1565,7 @@ namespace RiqMenu.UI.Toolkit
 
         }
 
-        private void EnterSearchMode()
-        {
+        private void EnterSearchMode() {
             _isSearchMode = true;
 
             TextField field = _currentTab == OverlayTab.Local ? _localSearchField : _onlineSearchField;
@@ -1643,46 +1576,39 @@ namespace RiqMenu.UI.Toolkit
 
             // Clear placeholder text
             string placeholder = _currentTab == OverlayTab.Local ? "Search local songs..." : "Search online songs...";
-            if (field.value == placeholder)
-            {
+            if (field.value == placeholder) {
                 field.value = "";
                 var input = field.Q<VisualElement>("unity-text-input");
                 if (input != null) input.style.color = ParseColor(RiqMenuStyles.Charcoal);
             }
 
             // Schedule focus for next frame to ensure layout is complete
-            field.schedule.Execute(() =>
-            {
+            field.schedule.Execute(() => {
                 field.Focus();
                 field.SelectAll(); // Triggers edit mode
             });
         }
 
-        private void ExitSearchMode()
-        {
+        private void ExitSearchMode() {
             _isSearchMode = false;
 
             // Blur BOTH search fields and disable focusable to prevent accidental focus
-            if (_localSearchField != null)
-            {
+            if (_localSearchField != null) {
                 _localSearchField.Blur();
                 _localSearchField.focusable = false;
                 // Reset placeholder if empty
-                if (string.IsNullOrEmpty(_localSearchField.value))
-                {
+                if (string.IsNullOrEmpty(_localSearchField.value)) {
                     _localSearchField.value = "Search local songs...";
                     var input = _localSearchField.Q<VisualElement>("unity-text-input");
                     if (input != null) input.style.color = ParseColor(RiqMenuStyles.GrayLight);
                 }
             }
 
-            if (_onlineSearchField != null)
-            {
+            if (_onlineSearchField != null) {
                 _onlineSearchField.Blur();
                 _onlineSearchField.focusable = false;
                 // Reset placeholder if empty
-                if (string.IsNullOrEmpty(_onlineSearchField.value))
-                {
+                if (string.IsNullOrEmpty(_onlineSearchField.value)) {
                     _onlineSearchField.value = "Search online songs...";
                     var input = _onlineSearchField.Q<VisualElement>("unity-text-input");
                     if (input != null) input.style.color = ParseColor(RiqMenuStyles.GrayLight);
@@ -1693,26 +1619,21 @@ namespace RiqMenu.UI.Toolkit
             _overlay?.Focus();
         }
 
-        private void UpdateAutoplayLabel()
-        {
-            if (_autoplayLabel != null)
-            {
+        private void UpdateAutoplayLabel() {
+            if (_autoplayLabel != null) {
                 _autoplayLabel.text = $"Autoplay: {(MixtapeLoaderCustom.autoplay ? "ON" : "OFF")} (P)";
                 _autoplayLabel.style.color = ParseColor(MixtapeLoaderCustom.autoplay ? RiqMenuStyles.Green : RiqMenuStyles.Coral);
             }
         }
 
-        private void UpdateAudioStatus()
-        {
+        private void UpdateAudioStatus() {
             if (_audioStatusLabel == null) return;
 
             var audioManager = RiqMenuSystemManager.Instance?.AudioManager;
             if (audioManager == null) return;
 
-            if (_isLoadingAudio)
-            {
-                if (audioManager.IsPreviewPlaying)
-                {
+            if (_isLoadingAudio) {
+                if (audioManager.IsPreviewPlaying) {
                     _isLoadingAudio = false;
                     var song = audioManager.CurrentPreviewSong;
                     string title = song?.SongTitle ?? "";
@@ -1721,14 +1642,12 @@ namespace RiqMenu.UI.Toolkit
                     _audioStatusLabel.text = $"Now Playing: {title}{muteIndicator}";
                     _audioStatusLabel.style.color = ParseColor(audioManager.IsMuted ? RiqMenuStyles.GrayLight : RiqMenuStyles.Yellow);
                 }
-                else if (Time.time - _loadingStartTime > 0.5f)
-                {
+                else if (Time.time - _loadingStartTime > 0.5f) {
                     _audioStatusLabel.text = "Loading audio...";
                     _audioStatusLabel.style.color = ParseColor(RiqMenuStyles.CyanLight);
                 }
             }
-            else if (audioManager.IsPreviewPlaying)
-            {
+            else if (audioManager.IsPreviewPlaying) {
                 // Update mute state for already playing audio
                 var song = audioManager.CurrentPreviewSong;
                 string title = song?.SongTitle ?? "";
@@ -1737,30 +1656,24 @@ namespace RiqMenu.UI.Toolkit
                 _audioStatusLabel.text = $"Now Playing: {title}{muteIndicator}";
                 _audioStatusLabel.style.color = ParseColor(audioManager.IsMuted ? RiqMenuStyles.GrayLight : RiqMenuStyles.Yellow);
             }
-            else
-            {
+            else {
                 _audioStatusLabel.text = "";
             }
         }
 
-        private void ScrollToSelectedLocal()
-        {
-            if (_selectedLocalIndex >= 0 && _selectedLocalIndex < _localSongElements.Count)
-            {
+        private void ScrollToSelectedLocal() {
+            if (_selectedLocalIndex >= 0 && _selectedLocalIndex < _localSongElements.Count) {
                 _localSongList.ScrollTo(_localSongElements[_selectedLocalIndex]);
             }
         }
 
-        private void ScrollToSelectedOnline()
-        {
-            if (_selectedOnlineIndex >= 0 && _selectedOnlineIndex < _onlineSongElements.Count)
-            {
+        private void ScrollToSelectedOnline() {
+            if (_selectedOnlineIndex >= 0 && _selectedOnlineIndex < _onlineSongElements.Count) {
                 _onlineSongList.ScrollTo(_onlineSongElements[_selectedOnlineIndex]);
             }
         }
 
-        private void DownloadSelectedSong()
-        {
+        private void DownloadSelectedSong() {
             if (_selectedOnlineIndex >= _onlineSongs.Count) return;
 
             var song = _onlineSongs[_selectedOnlineIndex];
@@ -1769,14 +1682,11 @@ namespace RiqMenu.UI.Toolkit
             ShowStatus($"Downloading {song.Title}...", "loading");
 
             _apiClient.DownloadSong(song, songsFolder,
-                (filePath, error) =>
-                {
-                    if (error != null)
-                    {
+                (filePath, error) => {
+                    if (error != null) {
                         ShowStatus($"Error: {error}", "error");
                     }
-                    else
-                    {
+                    else {
                         ShowStatus("Downloaded! Switch to Local to play.", "success");
                         var songManager = RiqMenuSystemManager.Instance?.SongManager;
                         songManager?.ReloadSongs();
@@ -1786,8 +1696,7 @@ namespace RiqMenu.UI.Toolkit
             );
         }
 
-        public void Show()
-        {
+        public void Show() {
             if (_isVisible) return;
 
             _isVisible = true;
@@ -1802,8 +1711,7 @@ namespace RiqMenu.UI.Toolkit
             _isSearchMode = false;
 
             // Reset search field
-            if (_localSearchField != null)
-            {
+            if (_localSearchField != null) {
                 _localSearchField.value = "Search local songs...";
                 var inp = _localSearchField.Q<VisualElement>("unity-text-input");
                 if (inp != null) inp.style.color = ParseColor(RiqMenuStyles.GrayLight);
@@ -1821,8 +1729,7 @@ namespace RiqMenu.UI.Toolkit
             TryPreviewCurrentSong();
         }
 
-        public void Hide()
-        {
+        public void Hide() {
             if (!_isVisible) return;
 
             _isVisible = false;
@@ -1837,16 +1744,13 @@ namespace RiqMenu.UI.Toolkit
             OnOverlayClosed?.Invoke();
         }
 
-        public void Toggle()
-        {
+        public void Toggle() {
             if (_isVisible) Hide();
             else Show();
         }
 
-        private Color ParseColor(string hex)
-        {
-            if (ColorUtility.TryParseHtmlString(hex, out Color color))
-            {
+        private Color ParseColor(string hex) {
+            if (ColorUtility.TryParseHtmlString(hex, out Color color)) {
                 return color;
             }
             return Color.white;
