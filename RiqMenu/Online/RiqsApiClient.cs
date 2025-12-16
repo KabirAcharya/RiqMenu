@@ -14,7 +14,7 @@ namespace RiqMenu.Online
     /// </summary>
     public class RiqsApiClient
     {
-        private const string BaseUrl = "http://localhost:3000";
+        private const string BaseUrl = "https://riqs.kabir.au";
         private const string UserAgent = "RiqMenu/1.0";
 
         static RiqsApiClient()
@@ -84,8 +84,21 @@ namespace RiqMenu.Online
                         string existingFile = FindExistingByHash(destinationFolder, song.FileHash);
                         if (existingFile != null)
                         {
-                            callback(null, "Song already downloaded: " + Path.GetFileName(existingFile));
-                            return;
+                            string existingMetaPath = existingFile + ".meta.json";
+                            if (File.Exists(existingMetaPath))
+                            {
+                                // Already have file and metadata - just update download count
+                                SaveSongMetadata(existingFile, song);
+                                callback(existingFile, "Song already downloaded (metadata updated)");
+                                return;
+                            }
+                            else
+                            {
+                                // Have file but no metadata - save it now
+                                SaveSongMetadata(existingFile, song);
+                                callback(existingFile, null);
+                                return;
+                            }
                         }
                     }
 
@@ -119,6 +132,9 @@ namespace RiqMenu.Online
                         client.DownloadFile(url, filePath);
                     }
 
+                    // Save metadata JSON alongside the song file
+                    SaveSongMetadata(filePath, song);
+
                     callback(filePath, null);
                 }
                 catch (Exception ex)
@@ -126,6 +142,39 @@ namespace RiqMenu.Online
                     callback(null, ex.Message);
                 }
             });
+        }
+
+        /// <summary>
+        /// Save song metadata as a JSON file alongside the song
+        /// </summary>
+        private void SaveSongMetadata(string songFilePath, OnlineSong song)
+        {
+            try
+            {
+                string metaPath = songFilePath + ".meta.json";
+                string json = $@"{{
+  ""title"": ""{EscapeJsonString(song.Title)}"",
+  ""artist"": ""{EscapeJsonString(song.Artist)}"",
+  ""creator"": ""{EscapeJsonString(song.Creator)}"",
+  ""uploaderName"": ""{EscapeJsonString(song.UploaderName)}"",
+  ""bpm"": {(song.Bpm.HasValue ? song.Bpm.Value.ToString("F1") : "null")},
+  ""duration"": {(song.Duration.HasValue ? song.Duration.Value.ToString("F1") : "null")},
+  ""difficulty"": ""{EscapeJsonString(song.Difficulty)}"",
+  ""downloadCount"": {song.DownloadCount},
+  ""fileType"": ""{EscapeJsonString(song.FileType)}""
+}}";
+                File.WriteAllText(metaPath, json);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[RiqsApiClient] Failed to save metadata: {ex.Message}");
+            }
+        }
+
+        private string EscapeJsonString(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            return s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r");
         }
 
         /// <summary>

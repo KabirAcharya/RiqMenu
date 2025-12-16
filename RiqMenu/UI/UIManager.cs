@@ -2,35 +2,30 @@ using System;
 using UnityEngine;
 using RiqMenu.Core;
 using RiqMenu.Input;
+using RiqMenu.UI.Toolkit;
 
 namespace RiqMenu.UI
 {
     /// <summary>
-    /// Manages all UI components including the draggable overlay
+    /// Manages all UI components including the overlay
     /// </summary>
     public class UIManager : MonoBehaviour, IRiqMenuSystem {
         public bool IsActive { get; private set; }
 
-        private SongsOverlay _songsOverlay;
+        private ToolkitOverlay _overlay;
 
-        public SongsOverlay SongsOverlay => _songsOverlay;
+        public ToolkitOverlay Overlay => _overlay;
 
         public void Initialize() {
-            Debug.Log("[UIManager] Initializing");
-
-            // Create songs overlay
-            _songsOverlay = gameObject.AddComponent<SongsOverlay>();
+            Debug.Log("[UIManager] Initializing with UI Toolkit overlay");
+            _overlay = gameObject.AddComponent<ToolkitOverlay>();
+            _overlay.OnSongSelected += OnSongSelected;
 
             // Subscribe to input events
             var inputManager = RiqMenuSystemManager.Instance?.InputManager;
             if (inputManager != null) {
-                inputManager.OnOverlayToggleRequested += ToggleSongsOverlay;
+                inputManager.OnOverlayToggleRequested += ToggleOverlay;
                 inputManager.OnEscapePressed += HandleEscapePressed;
-            }
-
-            // Subscribe to overlay events
-            if (_songsOverlay != null) {
-                _songsOverlay.OnSongSelected += OnSongSelected;
             }
 
             IsActive = true;
@@ -40,14 +35,14 @@ namespace RiqMenu.UI
             // Unsubscribe from events
             var inputManager = RiqMenuSystemManager.Instance?.InputManager;
             if (inputManager != null) {
-                inputManager.OnOverlayToggleRequested -= ToggleSongsOverlay;
+                inputManager.OnOverlayToggleRequested -= ToggleOverlay;
                 inputManager.OnEscapePressed -= HandleEscapePressed;
             }
 
-            if (_songsOverlay != null) {
-                _songsOverlay.OnSongSelected -= OnSongSelected;
-                Destroy(_songsOverlay);
-                _songsOverlay = null;
+            if (_overlay != null) {
+                _overlay.OnSongSelected -= OnSongSelected;
+                Destroy(_overlay);
+                _overlay = null;
             }
 
             IsActive = false;
@@ -57,22 +52,13 @@ namespace RiqMenu.UI
             // UI Manager doesn't need constant updates beyond its components
         }
 
-        private void OnGUI() {
-            // Also handle songs overlay GUI here
-            if (_songsOverlay != null && _songsOverlay.IsVisible) {
-                _songsOverlay.DrawOverlayGUI();
-            }
-        }
-
-        private void ToggleSongsOverlay() {
-            if (_songsOverlay != null) {
-                _songsOverlay.Toggle();
-            }
+        private void ToggleOverlay() {
+            _overlay?.Toggle();
         }
 
         private void HandleEscapePressed() {
-            if (_songsOverlay != null && _songsOverlay.IsVisible) {
-                _songsOverlay.Hide();
+            if (_overlay != null && _overlay.IsVisible) {
+                _overlay.Hide();
             }
         }
 

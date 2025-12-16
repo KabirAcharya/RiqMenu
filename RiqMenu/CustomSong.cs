@@ -9,6 +9,11 @@ namespace RiqMenu {
         public string riq;
         public AudioClip audioClip;
 
+        // Extended metadata from .meta.json
+        public float? Bpm;
+        public int? DownloadCount;
+        public string Difficulty;
+
         public bool IsBopFile => !string.IsNullOrEmpty(riq) && riq.EndsWith(".bop", System.StringComparison.OrdinalIgnoreCase);
     }
 }

@@ -73,6 +73,7 @@ namespace RiqMenu
 
             SceneManager.sceneLoaded += OnSceneLoaded;
             harmony.PatchAll();
+
             Logger.LogInfo($"Plugin {PluginInfo.PLUGIN_GUID} is loaded!");
         }
 
@@ -110,12 +111,19 @@ namespace RiqMenu
         /// Toggle the custom songs overlay.
         /// </summary>
         public void ToggleCustomSongsOverlay() {
-            if (uiManager?.SongsOverlay != null) {
-                uiManager.SongsOverlay.Toggle();
+            if (uiManager != null && uiManager.Overlay != null) {
+                uiManager.Overlay.Toggle();
             }
             else {
-                Logger.LogError("UIManager or SongsOverlay not available");
+                Logger.LogError("UIManager not available");
             }
+        }
+
+        /// <summary>
+        /// Check if any overlay is currently visible
+        /// </summary>
+        public bool IsOverlayVisible() {
+            return uiManager?.Overlay?.IsVisible ?? false;
         }
 
         private static void OnSceneLoaded(Scene scene, LoadSceneMode loadSceneMode) {
@@ -167,7 +175,7 @@ namespace RiqMenu
         [HarmonyPatch(typeof(TitleScript), "Update", [])]
         private static class TitleScriptUpdatePatch {
             private static bool Prefix(TitleScript __instance) {
-                bool overlayVisible = Instance.uiManager?.SongsOverlay?.IsVisible ?? false;
+                bool overlayVisible = Instance.IsOverlayVisible();
                 if (overlayVisible) {
                     return false;
                 }
@@ -191,7 +199,7 @@ namespace RiqMenu
         [HarmonyPatch(typeof(StageSelectScript), "Update", [])]
         private static class StageSelectScriptUpdatePatch {
             private static bool Prefix(StageSelectScript __instance) {
-                bool overlayVisible = Instance.uiManager?.SongsOverlay?.IsVisible ?? false;
+                bool overlayVisible = Instance.IsOverlayVisible();
                 if (overlayVisible) {
                     return false;
                 }

@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.IO;
 using System.IO.Compression;
+using System.Reflection;
 using System.Text;
 using UnityEngine.Networking;
 using UnityEngine;
@@ -22,6 +23,10 @@ namespace RiqMenu.Audio
         private string _currentTempPath;
         private CustomSong _currentPreviewSong;
 
+        // Reference to title screen jukebox music for muting
+        private object _jukeboxMusic = null;
+        private PropertyInfo _jukeboxVolumeProp = null;
+
         public bool IsPreviewPlaying  {
             get  {
                 try {
@@ -32,6 +37,19 @@ namespace RiqMenu.Audio
             }
         }
         public CustomSong CurrentPreviewSong => _currentPreviewSong;
+
+        public bool IsMuted {
+            get => _audioSource != null && _audioSource.mute;
+        }
+
+        /// <summary>
+        /// Toggle mute state for preview audio
+        /// </summary>
+        public void ToggleMute() {
+            if (_audioSource != null) {
+                _audioSource.mute = !_audioSource.mute;
+            }
+        }
 
         public event System.Action<CustomSong> OnPreviewStarted;
         public event System.Action OnPreviewStopped;
@@ -51,7 +69,47 @@ namespace RiqMenu.Audio
             IsActive = false;
         }
 
-        public void Update() { }
+
+        public void Update() {
+            // Update volume continuously to match game settings
+            if (_audioSource != null && _audioSource.isPlaying && !_audioSource.mute) {
+                _audioSource.volume = GetEffectiveVolume();
+            }
+        }
+
+        /// <summary>
+        /// Calculate effective volume using game's master and music volume settings
+        /// Uses the same NaturalToLinear conversion as the game
+        /// </summary>
+        private float GetEffectiveVolume() {
+            float masterVol = AudioSettings.Volume;
+            float musicVol = AudioSettings.MusicVolume;
+            float combined = masterVol * musicVol;
+            return NaturalToLinear(combined);
+        }
+
+        /// <summary>
+        /// Convert natural (0-1) volume to linear scale with dB correction
+        /// Matches the game's AudioSettings.NaturalToLinear implementation
+        /// </summary>
+        private float NaturalToLinear(float natural) {
+            natural = Mathf.Clamp01(natural);
+            float threshold = 1f / (40f * Mathf.Log(10f) / 20f);
+            if (natural < threshold) {
+                float linearAtThreshold = NaturalToLinearInternal(threshold);
+                float t = Mathf.InverseLerp(0f, threshold, natural);
+                return Mathf.Lerp(0f, linearAtThreshold, t);
+            }
+            return NaturalToLinearInternal(natural);
+        }
+
+        private float NaturalToLinearInternal(float natural) {
+            return (float)DecibelsToLinear(Mathf.Lerp(-40f, 0f, natural));
+        }
+
+        private double DecibelsToLinear(double dB) {
+            return Math.Pow(10.0, dB / 20.0);
+        }
 
         /// <summary>
         /// Play preview audio for a song using async TempoSound initialization
@@ -170,7 +228,12 @@ namespace RiqMenu.Audio
                 clip.name = Path.GetFileNameWithoutExtension(song.riq) + "_preview";
 
                 _audioSource.clip = clip;
+                _audioSource.volume = GetEffectiveVolume(); // Apply game volume settings
                 try { _audioSource.time = Mathf.Clamp(startTime, 0f, _audioSource.clip.length - 0.01f); } catch { }
+
+                // Mute menu music while previewing
+                MuteMenuMusic();
+
                 _audioSource.Play();
                 OnPreviewStarted?.Invoke(song);
 
@@ -195,6 +258,9 @@ namespace RiqMenu.Audio
                     _audioSource.clip = null;
                 }
             }
+
+            // Restore menu music volume
+            UnmuteMenuMusic();
 
             // Nothing should be playing now; delete all stream files
             DeleteAllStreamFilesExcept(null);
@@ -249,6 +315,50 @@ namespace RiqMenu.Audio
                     } catch { /* ignore per-file issues */ }
                 }
             } catch { /* ignore directory issues */ }
+        }
+
+        /// <summary>
+        /// Mute title screen music by finding JukeboxScript and setting its music volume to 0
+        /// </summary>
+        private void MuteMenuMusic() {
+            try {
+                // Find JukeboxScript in scene
+                var jukeboxType = Type.GetType("JukeboxScript, Assembly-CSharp");
+                if (jukeboxType == null) return;
+
+                var jukebox = FindObjectOfType(jukeboxType);
+                if (jukebox == null) return;
+
+                // Get music field (public TempoSound)
+                var musicField = jukeboxType.GetField("music", BindingFlags.Public | BindingFlags.Instance);
+                if (musicField == null) return;
+
+                var music = musicField.GetValue(jukebox);
+                if (music == null) return;
+
+                // Cache for unmute
+                _jukeboxMusic = music;
+                _jukeboxVolumeProp = music.GetType().GetProperty("Volume", BindingFlags.Public | BindingFlags.Instance);
+
+                // Set volume to 0
+                _jukeboxVolumeProp?.SetValue(music, 0f);
+
+            } catch (Exception ex) {
+                Debug.LogWarning($"[AudioManager] Failed to mute menu music: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Restore title screen music volume
+        /// </summary>
+        private void UnmuteMenuMusic() {
+            try {
+                if (_jukeboxMusic != null && _jukeboxVolumeProp != null) {
+                    _jukeboxVolumeProp.SetValue(_jukeboxMusic, 1f);
+                }
+            } catch { }
+            _jukeboxMusic = null;
+            _jukeboxVolumeProp = null;
         }
     }
 }

@@ -16,8 +16,8 @@ namespace RiqMenu.Updater
     {
         private const string GitHubRepo = "KabirAcharya/RiqMenu";
 
-        // Set to true to force update regardless of version (for testing)
-        private const bool FORCE_UPDATE = false;
+        // Set RIQMENU_FORCE_UPDATE=1 env var to force update (for testing)
+        private static bool FORCE_UPDATE => Environment.GetEnvironmentVariable("RIQMENU_FORCE_UPDATE") == "1";
 
         private static ManualLogSource _logger;
 
