@@ -4,7 +4,7 @@
     <TargetFramework>net48</TargetFramework>
     <AssemblyName>RiqMenu</AssemblyName>
     <Description> A simple RIQ menu for Bits &amp; Bops. </Description>
-    <Version>1.0</Version>
+    <Version>1.1</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>

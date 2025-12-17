@@ -15,7 +15,7 @@ namespace RiqMenu.Online
     public class RiqsApiClient
     {
         private const string BaseUrl = "https://riqs.kabir.au";
-        private const string UserAgent = "RiqMenu/1.0";
+        private const string UserAgent = "RiqMenu/1.1";
 
         static RiqsApiClient()
         {
@@ -161,7 +161,8 @@ namespace RiqMenu.Online
   ""duration"": {(song.Duration.HasValue ? song.Duration.Value.ToString("F1") : "null")},
   ""difficulty"": ""{EscapeJsonString(song.Difficulty)}"",
   ""downloadCount"": {song.DownloadCount},
-  ""fileType"": ""{EscapeJsonString(song.FileType)}""
+  ""fileType"": ""{EscapeJsonString(song.FileType)}"",
+  ""fileHash"": ""{EscapeJsonString(song.FileHash)}""
 }}";
                 File.WriteAllText(metaPath, json);
             }
@@ -175,6 +176,15 @@ namespace RiqMenu.Online
         {
             if (string.IsNullOrEmpty(s)) return "";
             return s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r");
+        }
+
+        /// <summary>
+        /// Check if a song is already downloaded locally
+        /// </summary>
+        public bool IsSongDownloaded(OnlineSong song, string folder)
+        {
+            if (string.IsNullOrEmpty(song?.FileHash)) return false;
+            return FindExistingByHash(folder, song.FileHash) != null;
         }
 
         /// <summary>

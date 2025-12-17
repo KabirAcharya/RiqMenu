@@ -140,12 +140,12 @@ namespace RiqMenu
                 TitleScript title = GameObject.Find("TitleScript").GetComponent<TitleScript>();
                 titleScript = title;
 
-                // Ensure RiqMenu tag is present in the title build text (avoid duplicates)
-                string tag = "<color=#ff0000>R</color><color=#ff7f00>i</color><color=#ffff00>q</color><color=#00ff00>M</color><color=#0000ff>e</color><color=#4b0082>n</color><color=#9400d3>u</color>";
+                // Set RiqMenu version in the title build text (avoid duplicates)
+                string tag = "<color=#ff0000>R</color><color=#ff7f00>i</color><color=#ffff00>q</color><color=#00ff00>M</color><color=#0000ff>e</color><color=#4b0082>n</color><color=#9400d3>u</color> v" + PluginInfo.PLUGIN_VERSION;
                 if (title != null && title.buildTypeText != null) {
                     string currentText = title.buildTypeText.text ?? "";
-                    if (!currentText.Contains(tag)) {
-                        // If there's existing text, append with brackets; otherwise just show the tag
+                    // Check for our color-coded tag to avoid duplicates
+                    if (!currentText.Contains("<color=#ff0000>R</color>")) {
                         if (string.IsNullOrEmpty(currentText)) {
                             title.buildTypeText.text = tag;
                         } else {
@@ -188,7 +188,10 @@ namespace RiqMenu
 
                 if (TempoInput.GetActionDown<global::Action>(global::Action.Confirm)) {
                     if (selected < options.Count && options[selected] == "Custom Songs") {
-                        Instance.ToggleCustomSongsOverlay();
+                        // Only open if not already open - prevents input bleed-through
+                        if (!Instance.IsOverlayVisible()) {
+                            Instance.ToggleCustomSongsOverlay();
+                        }
                         return false;
                     }
                 }

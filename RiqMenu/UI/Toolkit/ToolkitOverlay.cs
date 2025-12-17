@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.UIElements;
 using RiqMenu.Core;
@@ -21,8 +23,12 @@ namespace RiqMenu.UI.Toolkit {
         private VisualElement _overlay;
         private bool _isVisible = false;
 
-        // Tab state
+        // Tab state - single source of truth with static accessor
         private OverlayTab _currentTab = OverlayTab.Local;
+        public static OverlayTab CurrentTabStatic { get; private set; } = OverlayTab.Local;
+
+        // Frame delay after tab switch to prevent same-frame input processing
+        private bool _tabJustSwitched = false;
         private Button _localTab;
         private Button _onlineTab;
         private VisualElement _localContent;
@@ -54,6 +60,7 @@ namespace RiqMenu.UI.Toolkit {
         private float _onlineSearchDebounceTime = 0f;
         private string _pendingOnlineSearch = null;
         private const float ONLINE_SEARCH_DEBOUNCE_DELAY = 0.4f;
+        private HashSet<string> _localFileHashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         // Status
         private VisualElement _statusContainer;
@@ -66,11 +73,19 @@ namespace RiqMenu.UI.Toolkit {
         public bool IsVisible => _isVisible;
         public event System.Action OnOverlayOpened;
         public event System.Action OnOverlayClosed;
-        public event System.Action<int> OnSongSelected;
+        public event System.Action<int, OverlayTab> OnSongSelected;
 
         // Delay timer to ignore input briefly after opening
         private float _inputDelayTimer = 0f;
         private const float INPUT_DELAY = 0.15f; // 150ms delay after opening
+
+        // Toggle cooldown to prevent rapid open/close
+        private float _lastToggleTime = 0f;
+        private const float TOGGLE_COOLDOWN = 0.3f; // 300ms cooldown between toggles
+
+        // Hide cooldown to prevent immediate re-open after playing a song
+        private float _lastHideTime = 0f;
+        private const float REOPEN_COOLDOWN = 1.0f; // 1 second cooldown after hiding
 
         // Search mode flag - more reliable than focus detection
         private bool _isSearchMode = false;
@@ -177,13 +192,23 @@ namespace RiqMenu.UI.Toolkit {
             _overlay.focusable = true;
             _overlay.tabIndex = -1; // Disable tab navigation
 
-            // Intercept Tab key to prevent UI Toolkit's default tab navigation
+            // Intercept keys to prevent UI Toolkit's default navigation from interfering
             _overlay.RegisterCallback<KeyDownEvent>(evt => {
                 if (evt.keyCode == KeyCode.Tab) {
                     evt.StopPropagation();
                     evt.PreventDefault();
-                    // Tab handling is done in HandleInput via UnityEngine.Input
                 }
+                // Stop Enter from propagating to other UI elements or game menus
+                if (evt.keyCode == KeyCode.Return || evt.keyCode == KeyCode.KeypadEnter) {
+                    evt.StopPropagation();
+                    evt.PreventDefault();
+                }
+            }, TrickleDown.TrickleDown);
+
+            // Also intercept NavigationSubmit events to prevent them from reaching game menus
+            _overlay.RegisterCallback<NavigationSubmitEvent>(evt => {
+                evt.StopPropagation();
+                evt.PreventDefault();
             }, TrickleDown.TrickleDown);
 
             // Main card
@@ -480,6 +505,7 @@ namespace RiqMenu.UI.Toolkit {
         private Button CreateTab(string text, bool active) {
             var tab = new Button();
             tab.text = text;
+            tab.focusable = false; // Prevent Enter key from triggering tab click
             tab.style.paddingLeft = 24;
             tab.style.paddingRight = 24;
             tab.style.paddingTop = 12;
@@ -888,7 +914,7 @@ namespace RiqMenu.UI.Toolkit {
             return row;
         }
 
-        private VisualElement CreateSongItem(string title, string creator, string fileType, int? bpm, int? downloads, bool selected) {
+        private VisualElement CreateSongItem(string title, string creator, string fileType, int? bpm, int? downloads, bool selected, bool isDownloaded = false) {
             var item = new VisualElement();
             item.style.flexDirection = FlexDirection.Column;
             item.style.paddingLeft = 20;
@@ -931,11 +957,21 @@ namespace RiqMenu.UI.Toolkit {
             titleLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
             titleLabel.style.color = ParseColor(RiqMenuStyles.Charcoal);
             titleLabel.style.flexGrow = 1;
+            titleLabel.style.flexShrink = 1;
+            titleLabel.style.overflow = Overflow.Hidden;
+            titleLabel.style.textOverflow = TextOverflow.Ellipsis;
+            titleLabel.style.whiteSpace = WhiteSpace.NoWrap;
             header.Add(titleLabel);
 
             // File type badge
             var badge = CreateBadge(fileType.ToUpper(), fileType.ToLower() == "bop" ? "bop" : "riq");
             header.Add(badge);
+
+            // Downloaded indicator for online songs
+            if (isDownloaded) {
+                var dlBadge = CreateBadge("✓", "downloaded");
+                header.Add(dlBadge);
+            }
 
             item.Add(header);
 
@@ -1017,9 +1053,40 @@ namespace RiqMenu.UI.Toolkit {
                     badge.style.borderLeftColor = ParseColor(RiqMenuStyles.CoralLight);
                     badge.style.borderRightColor = ParseColor(RiqMenuStyles.CoralLight);
                     break;
+                case "downloaded":
+                    badge.style.backgroundColor = ParseColor(RiqMenuStyles.Mint);
+                    badge.style.color = ParseColor(RiqMenuStyles.Green);
+                    badge.style.borderTopColor = ParseColor(RiqMenuStyles.Green);
+                    badge.style.borderBottomColor = ParseColor(RiqMenuStyles.Green);
+                    badge.style.borderLeftColor = ParseColor(RiqMenuStyles.Green);
+                    badge.style.borderRightColor = ParseColor(RiqMenuStyles.Green);
+                    break;
             }
 
             return badge;
+        }
+
+        private void BuildLocalHashCache() {
+            _localFileHashes.Clear();
+            string songsFolder = Path.Combine(Application.dataPath, "StreamingAssets", "RiqMenu");
+            if (!Directory.Exists(songsFolder)) return;
+
+            // Read hashes from metadata files (fast) instead of computing them
+            foreach (var metaFile in Directory.GetFiles(songsFolder, "*.meta.json")) {
+                try {
+                    string json = File.ReadAllText(metaFile);
+                    // Simple regex to extract hash from JSON
+                    var match = System.Text.RegularExpressions.Regex.Match(json, @"""fileHash""\s*:\s*""([^""]+)""", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    if (match.Success && !string.IsNullOrEmpty(match.Groups[1].Value)) {
+                        _localFileHashes.Add(match.Groups[1].Value);
+                    }
+                }
+                catch { }
+            }
+        }
+
+        private bool IsHashDownloaded(string hash) {
+            return !string.IsNullOrEmpty(hash) && _localFileHashes.Contains(hash);
         }
 
         private void SwitchTab(OverlayTab tab) {
@@ -1029,14 +1096,22 @@ namespace RiqMenu.UI.Toolkit {
             StopPreview();
 
             _currentTab = tab;
+            CurrentTabStatic = tab;
+            _tabJustSwitched = true; // Prevent same-frame input processing
             ApplyTabStyle(_localTab, tab == OverlayTab.Local);
             ApplyTabStyle(_onlineTab, tab == OverlayTab.Online);
 
             _localContent.style.display = tab == OverlayTab.Local ? DisplayStyle.Flex : DisplayStyle.None;
             _onlineContent.style.display = tab == OverlayTab.Online ? DisplayStyle.Flex : DisplayStyle.None;
 
-            if (tab == OverlayTab.Online && _onlineSongs.Count == 0) {
-                LoadOnlineSongs();
+            if (tab == OverlayTab.Online) {
+                if (_onlineSongs.Count == 0) {
+                    LoadOnlineSongs();
+                } else {
+                    // Refresh to update downloaded indicators
+                    BuildLocalHashCache();
+                    RefreshOnlineSongList();
+                }
             }
             else if (tab == OverlayTab.Local) {
                 // Reload songs from disk (may have new downloads)
@@ -1054,21 +1129,26 @@ namespace RiqMenu.UI.Toolkit {
             _currentPage = 1;
             _hasMorePages = true;
             _currentSearchQuery = null;
+            BuildLocalHashCache();
             ShowStatus("Loading songs...", "loading");
 
             _apiClient.GetSongs(_onlineSort, 1, (songs, error) => {
                 _isLoading = false;
 
                 if (error != null) {
-                    ShowStatus($"Error: {error}", "error");
+                    // Defer UI modification to avoid layout calculation errors
+                    _onlineSongList.schedule.Execute(() => ShowStatus($"Error: {error}", "error"));
                     return;
                 }
 
                 _onlineSongs = songs ?? new List<OnlineSong>();
                 _hasMorePages = songs != null && songs.Count >= 20; // Assume more if we got full page
                 _selectedOnlineIndex = 0;
-                HideStatus();
-                RefreshOnlineSongList();
+                // Defer UI modification to avoid layout calculation errors
+                _onlineSongList.schedule.Execute(() => {
+                    HideStatus();
+                    RefreshOnlineSongList();
+                });
             });
         }
 
@@ -1097,25 +1177,30 @@ namespace RiqMenu.UI.Toolkit {
                 int startIndex = _onlineSongs.Count;
                 _onlineSongs.AddRange(songs);
 
-                // Add new song elements to the list
-                for (int i = 0; i < songs.Count; i++) {
-                    var song = songs[i];
-                    int songIndex = startIndex + i;
-                    var item = CreateSongItem(
-                        song.DisplayTitle,
-                        song.Creator ?? song.UploaderName ?? "Unknown",
-                        song.FileType ?? "riq",
-                        song.Bpm.HasValue ? (int?)Mathf.RoundToInt(song.Bpm.Value) : null,
-                        song.DownloadCount,
-                        false
-                    );
+                // Defer UI modification to avoid layout calculation errors
+                _onlineSongList.schedule.Execute(() => {
+                    // Add new song elements to the list
+                    for (int i = 0; i < songs.Count; i++) {
+                        var song = songs[i];
+                        int songIndex = startIndex + i;
+                        bool isDownloaded = IsHashDownloaded(song.FileHash);
+                        var item = CreateSongItem(
+                            song.DisplayTitle,
+                            song.Creator ?? song.UploaderName ?? "Unknown",
+                            song.FileType ?? "riq",
+                            song.Bpm.HasValue ? (int?)Mathf.RoundToInt(song.Bpm.Value) : null,
+                            song.DownloadCount,
+                            false,
+                            isDownloaded
+                        );
 
-                    int index = songIndex;
-                    item.RegisterCallback<ClickEvent>(evt => SelectOnlineSong(index));
+                        int index = songIndex;
+                        item.RegisterCallback<ClickEvent>(evt => SelectOnlineSong(index));
 
-                    _onlineSongList.Add(item);
-                    _onlineSongElements.Add(item);
-                }
+                        _onlineSongList.Add(item);
+                        _onlineSongElements.Add(item);
+                    }
+                });
             };
 
             if (!string.IsNullOrEmpty(_currentSearchQuery)) {
@@ -1134,13 +1219,15 @@ namespace RiqMenu.UI.Toolkit {
 
             for (int i = 0; i < _onlineSongs.Count; i++) {
                 var song = _onlineSongs[i];
+                bool isDownloaded = IsHashDownloaded(song.FileHash);
                 var item = CreateSongItem(
                     song.DisplayTitle,
                     song.Creator ?? song.UploaderName ?? "Unknown",
                     song.FileType ?? "riq",
                     song.Bpm.HasValue ? (int?)Mathf.RoundToInt(song.Bpm.Value) : null,
                     song.DownloadCount, // Show downloads for online songs
-                    i == _selectedOnlineIndex
+                    i == _selectedOnlineIndex,
+                    isDownloaded
                 );
 
                 int index = i;
@@ -1253,6 +1340,8 @@ namespace RiqMenu.UI.Toolkit {
         }
 
         private void SelectLocalSong(int index) {
+            // Only allow selection when on Local tab
+            if (_currentTab != OverlayTab.Local) return;
             if (index == _selectedLocalIndex) return;
 
             // Update visual state
@@ -1305,6 +1394,8 @@ namespace RiqMenu.UI.Toolkit {
         }
 
         private void SelectOnlineSong(int index) {
+            // Only allow selection when on Online tab
+            if (_currentTab != OverlayTab.Online) return;
             // Bounds check - don't select if list is empty or index invalid
             if (_onlineSongElements.Count == 0) return;
             if (index < 0 || index >= _onlineSongElements.Count) return;
@@ -1406,20 +1497,25 @@ namespace RiqMenu.UI.Toolkit {
             _currentSearchQuery = query;
             _currentPage = 1;
             _hasMorePages = false; // Search doesn't support pagination yet
+            BuildLocalHashCache();
             ShowStatus($"Searching for \"{query}\"...", "loading");
 
             _apiClient.SearchSongs(query, (songs, error) => {
                 _isLoading = false;
 
                 if (error != null) {
-                    ShowStatus($"Error: {error}", "error");
+                    // Defer UI modification to avoid layout calculation errors
+                    _onlineSongList.schedule.Execute(() => ShowStatus($"Error: {error}", "error"));
                     return;
                 }
 
                 _onlineSongs = songs ?? new List<OnlineSong>();
                 _selectedOnlineIndex = 0;
-                HideStatus();
-                RefreshOnlineSongList();
+                // Defer UI modification to avoid layout calculation errors
+                _onlineSongList.schedule.Execute(() => {
+                    HideStatus();
+                    RefreshOnlineSongList();
+                });
             });
         }
 
@@ -1439,6 +1535,12 @@ namespace RiqMenu.UI.Toolkit {
                     CloseEditor(true);
                 }
                 return; // Don't process other input while editor is open
+            }
+
+            // Skip input processing for one frame after tab switch
+            if (_tabJustSwitched) {
+                _tabJustSwitched = false;
+                return;
             }
 
             // Escape always works - exits search mode or closes overlay
@@ -1474,12 +1576,14 @@ namespace RiqMenu.UI.Toolkit {
                 return;
             }
 
-            // Tab switching with arrows or A/D
+            // Tab switching with arrows or A/D - return immediately to prevent same-frame processing
             if (UnityEngine.Input.GetKeyDown(KeyCode.LeftArrow) || UnityEngine.Input.GetKeyDown(KeyCode.A)) {
                 SwitchTab(OverlayTab.Local);
+                return;
             }
-            else if (UnityEngine.Input.GetKeyDown(KeyCode.RightArrow) || UnityEngine.Input.GetKeyDown(KeyCode.D)) {
+            if (UnityEngine.Input.GetKeyDown(KeyCode.RightArrow) || UnityEngine.Input.GetKeyDown(KeyCode.D)) {
                 SwitchTab(OverlayTab.Online);
+                return;
             }
 
             // Autoplay toggle (P key) - only in Local tab
@@ -1547,22 +1651,31 @@ namespace RiqMenu.UI.Toolkit {
                 }
             }
 
-            // Selection
+            // Selection - only handle for the current tab
             if (UnityEngine.Input.GetKeyDown(KeyCode.Return) || UnityEngine.Input.GetKeyDown(KeyCode.KeypadEnter)) {
-                if (_currentTab == OverlayTab.Local) {
-                    // Get actual song index from filtered list
-                    int actualIndex = _filteredLocalIndices.Count > 0 && _selectedLocalIndex < _filteredLocalIndices.Count
-                        ? _filteredLocalIndices[_selectedLocalIndex]
-                        : _selectedLocalIndex;
-                    OnSongSelected?.Invoke(actualIndex);
-                    Hide();
+                // Check current visibility state
+                bool localVisible = _localContent?.style.display == DisplayStyle.Flex;
+                bool onlineVisible = _onlineContent?.style.display == DisplayStyle.Flex;
+
+                if (_currentTab == OverlayTab.Local && localVisible) {
+                    // Only play if we have local songs
+                    if (_localSongElements.Count > 0 && _selectedLocalIndex >= 0) {
+                        int actualIndex = _filteredLocalIndices.Count > 0 && _selectedLocalIndex < _filteredLocalIndices.Count
+                            ? _filteredLocalIndices[_selectedLocalIndex]
+                            : _selectedLocalIndex;
+                        OnSongSelected?.Invoke(actualIndex, OverlayTab.Local);
+                        Hide();
+                    }
+                    return; // Don't process anything else after Enter on Local tab
                 }
-                else {
-                    // Download selected online song
-                    DownloadSelectedSong();
+                else if (_currentTab == OverlayTab.Online && onlineVisible) {
+                    // Only download if we have online songs
+                    if (_onlineSongElements.Count > 0 && _selectedOnlineIndex >= 0) {
+                        DownloadSelectedSong();
+                    }
+                    return; // Don't process anything else after Enter on Online tab
                 }
             }
-
         }
 
         private void EnterSearchMode() {
@@ -1674,23 +1787,49 @@ namespace RiqMenu.UI.Toolkit {
         }
 
         private void DownloadSelectedSong() {
-            if (_selectedOnlineIndex >= _onlineSongs.Count) return;
+            // Guard against empty list or invalid index
+            if (_onlineSongs.Count == 0) {
+                ShowStatus("No songs loaded yet", "error");
+                return;
+            }
+            if (_selectedOnlineIndex < 0 || _selectedOnlineIndex >= _onlineSongs.Count) {
+                ShowStatus("No song selected", "error");
+                return;
+            }
 
             var song = _onlineSongs[_selectedOnlineIndex];
             string songsFolder = System.IO.Path.Combine(Application.dataPath, "StreamingAssets", "RiqMenu");
 
             ShowStatus($"Downloading {song.Title}...", "loading");
 
+            int downloadingIndex = _selectedOnlineIndex;
             _apiClient.DownloadSong(song, songsFolder,
                 (filePath, error) => {
-                    if (error != null) {
-                        ShowStatus($"Error: {error}", "error");
-                    }
-                    else {
-                        ShowStatus("Downloaded! Switch to Local to play.", "success");
-                        var songManager = RiqMenuSystemManager.Instance?.SongManager;
-                        songManager?.ReloadSongs();
-                    }
+                    // Defer UI modification to avoid layout calculation errors
+                    _onlineSongList.schedule.Execute(() => {
+                        if (error != null && error.Contains("already downloaded")) {
+                            // Song already exists locally - just inform user
+                            ShowStatus("Already downloaded! Switch to Local to play.", "success");
+                            // Add to cache if not already there
+                            if (!string.IsNullOrEmpty(song.FileHash)) {
+                                _localFileHashes.Add(song.FileHash);
+                            }
+                        }
+                        else if (error != null) {
+                            ShowStatus($"Error: {error}", "error");
+                        }
+                        else {
+                            ShowStatus("Downloaded! Switch to Local to play.", "success");
+                            // Add hash to cache and refresh the item to show checkmark
+                            if (!string.IsNullOrEmpty(song.FileHash)) {
+                                _localFileHashes.Add(song.FileHash);
+                                // Update the song item to show downloaded indicator
+                                if (downloadingIndex >= 0 && downloadingIndex < _onlineSongElements.Count) {
+                                    RefreshOnlineSongList();
+                                }
+                            }
+                        }
+                    });
                 },
                 null
             );
@@ -1698,6 +1837,20 @@ namespace RiqMenu.UI.Toolkit {
 
         public void Show() {
             if (_isVisible) return;
+
+            // Prevent immediate re-open after hiding (e.g., after playing a song)
+            if (Time.time - _lastHideTime < REOPEN_COOLDOWN) {
+                return;
+            }
+
+            // Only allow showing on menu screens, not during gameplay
+            string sceneName = RiqMenuMain.currentScene.name;
+            if (sceneName != SceneKey.TitleScreen.ToString() &&
+                sceneName != SceneKey.StageSelect.ToString() &&
+                sceneName != "StageSelectDemo") {
+                Debug.Log($"[RiqMenu] Blocked Show() - not on menu screen (scene: {sceneName})");
+                return;
+            }
 
             _isVisible = true;
             _inputDelayTimer = INPUT_DELAY; // Ignore input briefly after opening
@@ -1709,6 +1862,15 @@ namespace RiqMenu.UI.Toolkit {
             _localSearchQuery = "";
             _selectedLocalIndex = 0;
             _isSearchMode = false;
+            _tabJustSwitched = false;
+
+            // Ensure correct tab state and visibility on open - always start on Local
+            _currentTab = OverlayTab.Local;
+            CurrentTabStatic = OverlayTab.Local;
+            _localContent.style.display = DisplayStyle.Flex;
+            _onlineContent.style.display = DisplayStyle.None;
+            ApplyTabStyle(_localTab, true);
+            ApplyTabStyle(_onlineTab, false);
 
             // Reset search field
             if (_localSearchField != null) {
@@ -1733,6 +1895,7 @@ namespace RiqMenu.UI.Toolkit {
             if (!_isVisible) return;
 
             _isVisible = false;
+            _lastHideTime = Time.time; // Record hide time to prevent immediate re-open
             _overlay.style.display = DisplayStyle.None;
 
             // Stop audio preview
@@ -1745,6 +1908,10 @@ namespace RiqMenu.UI.Toolkit {
         }
 
         public void Toggle() {
+            // Prevent rapid toggling
+            if (Time.time - _lastToggleTime < TOGGLE_COOLDOWN) return;
+            _lastToggleTime = Time.time;
+
             if (_isVisible) Hide();
             else Show();
         }

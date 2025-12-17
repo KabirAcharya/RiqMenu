@@ -62,8 +62,14 @@ namespace RiqMenu.UI
             }
         }
 
-        private void OnSongSelected(int songIndex) {
-            Debug.Log($"[UIManager] Song selected: {songIndex}");
+        private void OnSongSelected(int songIndex, OverlayTab sourceTab) {
+            // Final safeguard: only play if event came from Local tab
+            if (sourceTab != OverlayTab.Local) {
+                Debug.LogWarning($"[UIManager] Blocked song play - event from {sourceTab} tab, not Local");
+                return;
+            }
+
+            Debug.Log($"[UIManager] Song selected: {songIndex} from {sourceTab} tab");
 
             // Unblock input before changing scenes
             var inputManager = RiqMenuSystemManager.Instance?.InputManager;
