@@ -193,7 +193,11 @@ namespace RiqMenu.UI.Toolkit {
             _overlay.tabIndex = -1; // Disable tab navigation
 
             // Intercept keys to prevent UI Toolkit's default navigation from interfering
+            // But allow them through when in search mode so text fields work
             _overlay.RegisterCallback<KeyDownEvent>(evt => {
+                // Don't intercept if we're in search mode (typing in text field)
+                if (_isSearchMode) return;
+
                 if (evt.keyCode == KeyCode.Tab) {
                     evt.StopPropagation();
                     evt.PreventDefault();
@@ -206,7 +210,9 @@ namespace RiqMenu.UI.Toolkit {
             }, TrickleDown.TrickleDown);
 
             // Also intercept NavigationSubmit events to prevent them from reaching game menus
+            // But allow them through when in search mode
             _overlay.RegisterCallback<NavigationSubmitEvent>(evt => {
+                if (_isSearchMode) return;
                 evt.StopPropagation();
                 evt.PreventDefault();
             }, TrickleDown.TrickleDown);
@@ -599,6 +605,7 @@ namespace RiqMenu.UI.Toolkit {
             // Search
             _localSearchField = CreateSearchField("Search local songs...");
             _localSearchField.style.flexShrink = 0;
+            _localSearchField.focusable = false; // Only focusable via Tab key
             _localSearchField.RegisterValueChangedCallback(evt => {
                 string newValue = evt.newValue;
                 if (newValue == "Search local songs..." || newValue == "") {
@@ -692,6 +699,7 @@ namespace RiqMenu.UI.Toolkit {
             // Search with debouncing
             _onlineSearchField = CreateSearchField("Search online songs...");
             _onlineSearchField.style.flexShrink = 0;
+            _onlineSearchField.focusable = false; // Only focusable via Tab key
             _onlineSearchField.RegisterValueChangedCallback(evt => {
                 string newValue = evt.newValue;
                 if (newValue == "Search online songs..." || newValue == "") {
@@ -1698,6 +1706,11 @@ namespace RiqMenu.UI.Toolkit {
             // Schedule focus for next frame to ensure layout is complete
             field.schedule.Execute(() => {
                 field.Focus();
+                // Focus the internal text input element for keyboard input
+                var textInput = field.Q("unity-text-input");
+                if (textInput != null) {
+                    textInput.Focus();
+                }
                 field.SelectAll(); // Triggers edit mode
             });
         }
@@ -1872,10 +1885,19 @@ namespace RiqMenu.UI.Toolkit {
             ApplyTabStyle(_localTab, true);
             ApplyTabStyle(_onlineTab, false);
 
-            // Reset search field
+            // Reset search fields
             if (_localSearchField != null) {
                 _localSearchField.value = "Search local songs...";
+                _localSearchField.focusable = false; // Only focusable via Tab
+                _localSearchField.Blur();
                 var inp = _localSearchField.Q<VisualElement>("unity-text-input");
+                if (inp != null) inp.style.color = ParseColor(RiqMenuStyles.GrayLight);
+            }
+            if (_onlineSearchField != null) {
+                _onlineSearchField.value = "Search online songs...";
+                _onlineSearchField.focusable = false; // Only focusable via Tab
+                _onlineSearchField.Blur();
+                var inp = _onlineSearchField.Q<VisualElement>("unity-text-input");
                 if (inp != null) inp.style.color = ParseColor(RiqMenuStyles.GrayLight);
             }
 
