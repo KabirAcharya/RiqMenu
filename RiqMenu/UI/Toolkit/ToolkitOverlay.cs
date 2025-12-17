@@ -10,7 +10,8 @@ using RiqMenu.Online;
 namespace RiqMenu.UI.Toolkit {
     public enum OverlayTab {
         Local,
-        Online
+        Online,
+        Settings
     }
 
     /// <summary>
@@ -31,8 +32,18 @@ namespace RiqMenu.UI.Toolkit {
         private bool _tabJustSwitched = false;
         private Button _localTab;
         private Button _onlineTab;
+        private Button _settingsTab;
         private VisualElement _localContent;
         private VisualElement _onlineContent;
+        private VisualElement _settingsContent;
+
+        // Settings tab state
+        private Button _accuracyBarToggle;
+        private bool _accuracyBarValue;
+        private Button _autoRestartToggle;
+        private AutoRestartMode _autoRestartValue;
+        private int _selectedSettingIndex = 0;
+        private List<VisualElement> _settingsRows = new List<VisualElement>();
 
         // Local songs
         private ScrollView _localSongList;
@@ -440,10 +451,13 @@ namespace RiqMenu.UI.Toolkit {
 
             _localContent = CreateLocalContent();
             _onlineContent = CreateOnlineContent();
+            _settingsContent = CreateSettingsContent();
             _onlineContent.style.display = DisplayStyle.None;
+            _settingsContent.style.display = DisplayStyle.None;
 
             contentContainer.Add(_localContent);
             contentContainer.Add(_onlineContent);
+            contentContainer.Add(_settingsContent);
             card.Add(contentContainer);
 
             // Footer
@@ -491,6 +505,10 @@ namespace RiqMenu.UI.Toolkit {
             _onlineTab = CreateTab("Online", false);
             _onlineTab.clicked += () => SwitchTab(OverlayTab.Online);
             container.Add(_onlineTab);
+
+            _settingsTab = CreateTab("Settings", false);
+            _settingsTab.clicked += () => SwitchTab(OverlayTab.Settings);
+            container.Add(_settingsTab);
 
             // Spacer
             var spacer = new VisualElement();
@@ -709,7 +727,8 @@ namespace RiqMenu.UI.Toolkit {
                         _currentSearchQuery = null;
                         LoadOnlineSongs();
                     }
-                } else {
+                }
+                else {
                     // Debounce: set pending search and timer
                     _pendingOnlineSearch = newValue;
                     _onlineSearchDebounceTime = ONLINE_SEARCH_DEBOUNCE_DELAY;
@@ -782,6 +801,278 @@ namespace RiqMenu.UI.Toolkit {
             var draggerBorder = scroller.Q("unity-dragger-border");
             if (draggerBorder != null) {
                 draggerBorder.style.display = DisplayStyle.None;
+            }
+        }
+
+        private VisualElement CreateSettingsContent() {
+            var container = new VisualElement();
+            container.style.flexGrow = 1;
+            container.style.paddingLeft = 24;
+            container.style.paddingRight = 24;
+            container.style.paddingTop = 24;
+            container.style.paddingBottom = 24;
+            container.style.backgroundColor = ParseColor(RiqMenuStyles.WarmWhite);
+
+            // Header
+            var header = new Label("Settings");
+            header.style.fontSize = 24;
+            header.style.unityFontStyleAndWeight = FontStyle.Bold;
+            header.style.color = ParseColor(RiqMenuStyles.Charcoal);
+            header.style.marginBottom = 24;
+            container.Add(header);
+
+            // Gameplay section
+            var gameplaySection = new Label("Gameplay");
+            gameplaySection.style.fontSize = 16;
+            gameplaySection.style.unityFontStyleAndWeight = FontStyle.Bold;
+            gameplaySection.style.color = ParseColor(RiqMenuStyles.Gray);
+            gameplaySection.style.marginBottom = 12;
+            container.Add(gameplaySection);
+
+            _settingsRows.Clear();
+
+            // Accuracy Bar toggle
+            _accuracyBarValue = RiqMenuSettings.AccuracyBarEnabled;
+            var accuracyBarRow = CreateSettingsToggle(
+                "Accuracy Bar",
+                "Show timing indicator during gameplay",
+                _accuracyBarValue,
+                (value) => {
+                    _accuracyBarValue = value;
+                    RiqMenuSettings.AccuracyBarEnabled = value;
+                },
+                out _accuracyBarToggle
+            );
+            _settingsRows.Add(accuracyBarRow);
+            container.Add(accuracyBarRow);
+
+            // Auto-Restart toggle (cycles through Off/Miss/Non-Perfect)
+            _autoRestartValue = RiqMenuSettings.AutoRestartMode;
+            var autoRestartRow = CreateSettingsCycleToggle(
+                "Auto Restart",
+                "Restart song on miss or non-perfect hit",
+                GetAutoRestartLabel(_autoRestartValue),
+                () => {
+                    _autoRestartValue = RiqMenuSettings.CycleAutoRestartMode();
+                    UpdateAutoRestartToggle();
+                },
+                out _autoRestartToggle
+            );
+            _settingsRows.Add(autoRestartRow);
+            container.Add(autoRestartRow);
+
+            // Update selection highlight
+            UpdateSettingsSelection();
+
+            // Hint text
+            var hintText = new Label("Use Up/Down to navigate, Enter to toggle");
+            hintText.style.fontSize = 12;
+            hintText.style.color = ParseColor(RiqMenuStyles.GrayLight);
+            hintText.style.marginTop = 8;
+            hintText.style.unityFontStyleAndWeight = FontStyle.Italic;
+            container.Add(hintText);
+
+            // Info text at bottom
+            var infoText = new Label("Settings are saved automatically");
+            infoText.style.fontSize = 12;
+            infoText.style.color = ParseColor(RiqMenuStyles.GrayLight);
+            infoText.style.marginTop = 24;
+            container.Add(infoText);
+
+            return container;
+        }
+
+        private VisualElement CreateSettingsToggle(string label, string description, bool initialValue, System.Action<bool> onChanged, out Button toggleButton) {
+            var row = new VisualElement();
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.alignItems = Align.Center;
+            row.style.justifyContent = Justify.SpaceBetween;
+            row.style.paddingTop = 12;
+            row.style.paddingBottom = 12;
+            row.style.paddingLeft = 16;
+            row.style.paddingRight = 16;
+            row.style.marginBottom = 8;
+            row.style.backgroundColor = Color.white;
+            row.style.borderTopLeftRadius = 8;
+            row.style.borderTopRightRadius = 8;
+            row.style.borderBottomLeftRadius = 8;
+            row.style.borderBottomRightRadius = 8;
+
+            // Left side - label and description
+            var leftSide = new VisualElement();
+            leftSide.style.flexGrow = 1;
+
+            var labelText = new Label(label);
+            labelText.style.fontSize = 14;
+            labelText.style.unityFontStyleAndWeight = FontStyle.Bold;
+            labelText.style.color = ParseColor(RiqMenuStyles.Charcoal);
+            leftSide.Add(labelText);
+
+            var descText = new Label(description);
+            descText.style.fontSize = 12;
+            descText.style.color = ParseColor(RiqMenuStyles.Gray);
+            descText.style.marginTop = 2;
+            leftSide.Add(descText);
+
+            row.Add(leftSide);
+
+            // Right side - toggle button
+            var toggleBtn = new Button();
+            toggleBtn.focusable = false;
+            toggleBtn.style.width = 60;
+            toggleBtn.style.height = 32;
+            toggleBtn.style.borderTopLeftRadius = 16;
+            toggleBtn.style.borderTopRightRadius = 16;
+            toggleBtn.style.borderBottomLeftRadius = 16;
+            toggleBtn.style.borderBottomRightRadius = 16;
+            toggleBtn.style.borderTopWidth = 0;
+            toggleBtn.style.borderBottomWidth = 0;
+            toggleBtn.style.borderLeftWidth = 0;
+            toggleBtn.style.borderRightWidth = 0;
+
+            bool currentValue = initialValue;
+            UpdateToggleStyle(toggleBtn, currentValue);
+
+            toggleBtn.clicked += () => {
+                currentValue = !currentValue;
+                UpdateToggleStyle(toggleBtn, currentValue);
+                onChanged?.Invoke(currentValue);
+            };
+
+            row.Add(toggleBtn);
+            toggleButton = toggleBtn;
+
+            return row;
+        }
+
+        private void UpdateToggleStyle(Button toggle, bool isOn) {
+            if (isOn) {
+                toggle.text = "ON";
+                toggle.style.backgroundColor = ParseColor(RiqMenuStyles.CyanDark);
+                toggle.style.color = Color.white;
+            }
+            else {
+                toggle.text = "OFF";
+                toggle.style.backgroundColor = ParseColor(RiqMenuStyles.GrayLighter);
+                toggle.style.color = ParseColor(RiqMenuStyles.Gray);
+            }
+        }
+
+        private VisualElement CreateSettingsCycleToggle(string label, string description, string initialLabel, System.Action onCycle, out Button toggleButton) {
+            var row = new VisualElement();
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.alignItems = Align.Center;
+            row.style.justifyContent = Justify.SpaceBetween;
+            row.style.paddingTop = 12;
+            row.style.paddingBottom = 12;
+            row.style.paddingLeft = 16;
+            row.style.paddingRight = 16;
+            row.style.marginBottom = 8;
+            row.style.backgroundColor = Color.white;
+            row.style.borderTopLeftRadius = 8;
+            row.style.borderTopRightRadius = 8;
+            row.style.borderBottomLeftRadius = 8;
+            row.style.borderBottomRightRadius = 8;
+
+            // Left side - label and description
+            var leftSide = new VisualElement();
+            leftSide.style.flexGrow = 1;
+
+            var labelText = new Label(label);
+            labelText.style.fontSize = 14;
+            labelText.style.unityFontStyleAndWeight = FontStyle.Bold;
+            labelText.style.color = ParseColor(RiqMenuStyles.Charcoal);
+            leftSide.Add(labelText);
+
+            var descText = new Label(description);
+            descText.style.fontSize = 12;
+            descText.style.color = ParseColor(RiqMenuStyles.Gray);
+            descText.style.marginTop = 2;
+            leftSide.Add(descText);
+
+            row.Add(leftSide);
+
+            // Right side - cycle button
+            var cycleBtn = new Button();
+            cycleBtn.text = initialLabel;
+            cycleBtn.focusable = false;
+            cycleBtn.style.minWidth = 100;
+            cycleBtn.style.height = 32;
+            cycleBtn.style.borderTopLeftRadius = 16;
+            cycleBtn.style.borderTopRightRadius = 16;
+            cycleBtn.style.borderBottomLeftRadius = 16;
+            cycleBtn.style.borderBottomRightRadius = 16;
+            cycleBtn.style.borderTopWidth = 0;
+            cycleBtn.style.borderBottomWidth = 0;
+            cycleBtn.style.borderLeftWidth = 0;
+            cycleBtn.style.borderRightWidth = 0;
+            cycleBtn.style.paddingLeft = 12;
+            cycleBtn.style.paddingRight = 12;
+
+            UpdateCycleButtonStyle(cycleBtn, initialLabel);
+
+            cycleBtn.clicked += () => {
+                onCycle?.Invoke();
+            };
+
+            row.Add(cycleBtn);
+            toggleButton = cycleBtn;
+
+            return row;
+        }
+
+        private void UpdateCycleButtonStyle(Button btn, string label) {
+            btn.text = label;
+            if (label == "OFF") {
+                btn.style.backgroundColor = ParseColor(RiqMenuStyles.GrayLighter);
+                btn.style.color = ParseColor(RiqMenuStyles.Gray);
+            }
+            else if (label == "MISS") {
+                btn.style.backgroundColor = ParseColor(RiqMenuStyles.CoralLight);
+                btn.style.color = ParseColor(RiqMenuStyles.Coral);
+            }
+            else if (label == "NON-PERFECT") {
+                btn.style.backgroundColor = ParseColor(RiqMenuStyles.YellowLight);
+                btn.style.color = ParseColor("#B8860B");
+            }
+            else {
+                btn.style.backgroundColor = ParseColor(RiqMenuStyles.CyanDark);
+                btn.style.color = Color.white;
+            }
+        }
+
+        private string GetAutoRestartLabel(AutoRestartMode mode) {
+            switch (mode) {
+                case AutoRestartMode.OnMiss:
+                    return "MISS";
+                case AutoRestartMode.OnNonPerfect:
+                    return "NON-PERFECT";
+                default:
+                    return "OFF";
+            }
+        }
+
+        private void UpdateAutoRestartToggle() {
+            if (_autoRestartToggle != null) {
+                string label = GetAutoRestartLabel(_autoRestartValue);
+                UpdateCycleButtonStyle(_autoRestartToggle, label);
+            }
+        }
+
+        private void UpdateSettingsSelection() {
+            for (int i = 0; i < _settingsRows.Count; i++) {
+                var row = _settingsRows[i];
+                bool isSelected = i == _selectedSettingIndex;
+
+                // Apply selection border
+                row.style.borderTopWidth = isSelected ? 2 : 0;
+                row.style.borderBottomWidth = isSelected ? 2 : 0;
+                row.style.borderLeftWidth = isSelected ? 2 : 0;
+                row.style.borderRightWidth = isSelected ? 2 : 0;
+                row.style.borderTopColor = ParseColor(RiqMenuStyles.Cyan);
+                row.style.borderBottomColor = ParseColor(RiqMenuStyles.Cyan);
+                row.style.borderLeftColor = ParseColor(RiqMenuStyles.Cyan);
+                row.style.borderRightColor = ParseColor(RiqMenuStyles.Cyan);
             }
         }
 
@@ -1108,14 +1399,17 @@ namespace RiqMenu.UI.Toolkit {
             _tabJustSwitched = true; // Prevent same-frame input processing
             ApplyTabStyle(_localTab, tab == OverlayTab.Local);
             ApplyTabStyle(_onlineTab, tab == OverlayTab.Online);
+            ApplyTabStyle(_settingsTab, tab == OverlayTab.Settings);
 
             _localContent.style.display = tab == OverlayTab.Local ? DisplayStyle.Flex : DisplayStyle.None;
             _onlineContent.style.display = tab == OverlayTab.Online ? DisplayStyle.Flex : DisplayStyle.None;
+            _settingsContent.style.display = tab == OverlayTab.Settings ? DisplayStyle.Flex : DisplayStyle.None;
 
             if (tab == OverlayTab.Online) {
                 if (_onlineSongs.Count == 0) {
                     LoadOnlineSongs();
-                } else {
+                }
+                else {
                     // Refresh to update downloaded indicators
                     BuildLocalHashCache();
                     RefreshOnlineSongList();
@@ -1572,8 +1866,8 @@ namespace RiqMenu.UI.Toolkit {
                 return; // Skip all other input while typing
             }
 
-            // Tab to enter search mode
-            if (UnityEngine.Input.GetKeyDown(KeyCode.Tab)) {
+            // Tab to enter search mode (only on Local and Online tabs)
+            if (UnityEngine.Input.GetKeyDown(KeyCode.Tab) && _currentTab != OverlayTab.Settings) {
                 EnterSearchMode();
                 return;
             }
@@ -1584,13 +1878,25 @@ namespace RiqMenu.UI.Toolkit {
                 return;
             }
 
-            // Tab switching with arrows or A/D - return immediately to prevent same-frame processing
+            // Tab switching with arrows or A/D - cycle through tabs
             if (UnityEngine.Input.GetKeyDown(KeyCode.LeftArrow) || UnityEngine.Input.GetKeyDown(KeyCode.A)) {
-                SwitchTab(OverlayTab.Local);
+                // Cycle left: Settings -> Online -> Local -> Settings
+                if (_currentTab == OverlayTab.Local)
+                    SwitchTab(OverlayTab.Settings);
+                else if (_currentTab == OverlayTab.Online)
+                    SwitchTab(OverlayTab.Local);
+                else
+                    SwitchTab(OverlayTab.Online);
                 return;
             }
             if (UnityEngine.Input.GetKeyDown(KeyCode.RightArrow) || UnityEngine.Input.GetKeyDown(KeyCode.D)) {
-                SwitchTab(OverlayTab.Online);
+                // Cycle right: Local -> Online -> Settings -> Local
+                if (_currentTab == OverlayTab.Local)
+                    SwitchTab(OverlayTab.Online);
+                else if (_currentTab == OverlayTab.Online)
+                    SwitchTab(OverlayTab.Settings);
+                else
+                    SwitchTab(OverlayTab.Local);
                 return;
             }
 
@@ -1612,9 +1918,13 @@ namespace RiqMenu.UI.Toolkit {
                     SelectLocalSong(Mathf.Max(0, _selectedLocalIndex - 1));
                     ScrollToSelectedLocal();
                 }
-                else {
+                else if (_currentTab == OverlayTab.Online) {
                     SelectOnlineSong(Mathf.Max(0, _selectedOnlineIndex - 1));
                     ScrollToSelectedOnline();
+                }
+                else if (_currentTab == OverlayTab.Settings) {
+                    _selectedSettingIndex = Mathf.Max(0, _selectedSettingIndex - 1);
+                    UpdateSettingsSelection();
                 }
             }
             else if (UnityEngine.Input.GetKeyDown(KeyCode.DownArrow) || UnityEngine.Input.GetKeyDown(KeyCode.S)) {
@@ -1622,7 +1932,7 @@ namespace RiqMenu.UI.Toolkit {
                     SelectLocalSong(Mathf.Min(_localSongElements.Count - 1, _selectedLocalIndex + 1));
                     ScrollToSelectedLocal();
                 }
-                else {
+                else if (_currentTab == OverlayTab.Online) {
                     SelectOnlineSong(Mathf.Min(_onlineSongElements.Count - 1, _selectedOnlineIndex + 1));
                     ScrollToSelectedOnline();
 
@@ -1631,9 +1941,13 @@ namespace RiqMenu.UI.Toolkit {
                         LoadMoreOnlineSongs();
                     }
                 }
+                else if (_currentTab == OverlayTab.Settings) {
+                    _selectedSettingIndex = Mathf.Min(_settingsRows.Count - 1, _selectedSettingIndex + 1);
+                    UpdateSettingsSelection();
+                }
             }
-            // Page Up/Down navigation
-            else if (UnityEngine.Input.GetKeyDown(KeyCode.PageUp)) {
+            // Page Up/Down navigation (only for song lists)
+            else if (UnityEngine.Input.GetKeyDown(KeyCode.PageUp) && _currentTab != OverlayTab.Settings) {
                 if (_currentTab == OverlayTab.Local) {
                     SelectLocalSong(Mathf.Max(0, _selectedLocalIndex - PAGE_SIZE));
                     ScrollToSelectedLocal();
@@ -1643,7 +1957,7 @@ namespace RiqMenu.UI.Toolkit {
                     ScrollToSelectedOnline();
                 }
             }
-            else if (UnityEngine.Input.GetKeyDown(KeyCode.PageDown)) {
+            else if (UnityEngine.Input.GetKeyDown(KeyCode.PageDown) && _currentTab != OverlayTab.Settings) {
                 if (_currentTab == OverlayTab.Local) {
                     SelectLocalSong(Mathf.Min(_localSongElements.Count - 1, _selectedLocalIndex + PAGE_SIZE));
                     ScrollToSelectedLocal();
@@ -1660,7 +1974,11 @@ namespace RiqMenu.UI.Toolkit {
             }
 
             // Selection - only handle for the current tab
-            if (UnityEngine.Input.GetKeyDown(KeyCode.Return) || UnityEngine.Input.GetKeyDown(KeyCode.KeypadEnter)) {
+            // Space is an alternative to Enter, but not while searching (need space for typing)
+            bool selectPressed = UnityEngine.Input.GetKeyDown(KeyCode.Return) ||
+                                 UnityEngine.Input.GetKeyDown(KeyCode.KeypadEnter) ||
+                                 (!_isSearchMode && UnityEngine.Input.GetKeyDown(KeyCode.Space));
+            if (selectPressed) {
                 // Check current visibility state
                 bool localVisible = _localContent?.style.display == DisplayStyle.Flex;
                 bool onlineVisible = _onlineContent?.style.display == DisplayStyle.Flex;
@@ -1682,6 +2000,21 @@ namespace RiqMenu.UI.Toolkit {
                         DownloadSelectedSong();
                     }
                     return; // Don't process anything else after Enter on Online tab
+                }
+                else if (_currentTab == OverlayTab.Settings) {
+                    // Toggle the currently selected setting
+                    if (_selectedSettingIndex == 0 && _accuracyBarToggle != null) {
+                        // Accuracy Bar toggle (boolean)
+                        _accuracyBarValue = !_accuracyBarValue;
+                        UpdateToggleStyle(_accuracyBarToggle, _accuracyBarValue);
+                        RiqMenuSettings.AccuracyBarEnabled = _accuracyBarValue;
+                    }
+                    else if (_selectedSettingIndex == 1 && _autoRestartToggle != null) {
+                        // Auto-Restart toggle (cycles through modes)
+                        _autoRestartValue = RiqMenuSettings.CycleAutoRestartMode();
+                        UpdateAutoRestartToggle();
+                    }
+                    return;
                 }
             }
         }
