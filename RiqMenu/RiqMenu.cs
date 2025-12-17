@@ -130,6 +130,9 @@ namespace RiqMenu
             if (loadSceneMode == LoadSceneMode.Single) {
                 currentScene = scene;
                 StopPreview();
+
+                // Reset transition state when scene fully loads
+                _isTransitioning = false;
             }
 
             if (scene.name == SceneKey.TitleScreen.ToString()) {
@@ -306,7 +309,7 @@ namespace RiqMenu
         [HarmonyPatch(typeof(Judge), "JudgeInput")]
         private static class JudgeInputPatch {
             private static void Postfix(ValueTuple<float, Judgement, float, bool> __result) {
-                if (_isQuitting) return;
+                if (_isQuitting || _isTransitioning) return;
                 try {
                     float target = __result.Item1;
                     Judgement judgement = __result.Item2;
@@ -346,7 +349,7 @@ namespace RiqMenu
             private const float MISS_DISPLAY_DELTA = 0.2f;
 
             private static void Prefix(Judge __instance) {
-                if (_isQuitting) return;
+                if (_isQuitting || _isTransitioning) return;
                 try {
                     if (__instance == null || __instance.implicitJudgements == null) return;
                     _lastMissCount = __instance.implicitJudgements[Judgement.Miss];
@@ -356,7 +359,7 @@ namespace RiqMenu
             }
 
             private static void Postfix(Judge __instance) {
-                if (_isQuitting) return;
+                if (_isQuitting || _isTransitioning) return;
                 try {
                     // Skip if not ready for gameplay yet (grace period)
                     if (!_gameplayReady) return;
@@ -389,15 +392,17 @@ namespace RiqMenu
         private static float _gameplayGraceTimer = 0f;
         private const float GAMEPLAY_GRACE_PERIOD = 1.0f; // Wait 1 second after song starts
         private static bool _isQuitting = false; // Flag to disable patches during shutdown
+        private static bool _isTransitioning = false; // Flag to disable patches during scene transitions
 
         private void OnApplicationQuit() {
             _isQuitting = true;
+            _isTransitioning = true;
             _pendingRestart = false;
             _gameplayReady = false;
         }
 
         private static void CheckAutoRestart(Judgement judgement) {
-            if (_isQuitting) return;
+            if (_isQuitting || _isTransitioning) return;
 
             var mode = RiqMenuSettings.AutoRestartMode;
             if (mode == AutoRestartMode.Off) return;
@@ -430,7 +435,7 @@ namespace RiqMenu
         }
 
         private void LateUpdate() {
-            if (_isQuitting) return;
+            if (_isQuitting || _isTransitioning) return;
             try {
                 // Handle gameplay grace period
                 if (!_gameplayReady && _gameplayGraceTimer > 0) {
@@ -455,6 +460,10 @@ namespace RiqMenu
         }
 
         private void ExecuteRestart() {
+            // Disable all patches immediately to prevent crashes during transition
+            _isTransitioning = true;
+            _gameplayReady = false;
+
             try {
                 var sceneKey = TempoSceneManager.GetActiveSceneKey();
 
@@ -500,7 +509,8 @@ namespace RiqMenu
             private static void Postfix() {
                 if (_isQuitting) return;
 
-                // Reset pending restart when new song starts
+                // Reset transition state and pending restart when new song starts
+                _isTransitioning = false;
                 _pendingRestart = false;
                 _restartDelay = 0f;
 
