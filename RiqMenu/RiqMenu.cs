@@ -260,8 +260,9 @@ namespace RiqMenu
                 if (__instance.PreventQuit)
                     return;
 
-                // Hide accuracy bar when actually quitting
+                // Hide gameplay UI when actually quitting
                 _accuracyBar?.Hide();
+                _progressBar?.Hide();
 
                 // Only redirect if song was launched from RiqMenu and target is StageSelect
                 if (LaunchedFromRiqMenu && quitScene.HasValue && quitScene.Value == SceneKey.StageSelect) {
@@ -293,8 +294,9 @@ namespace RiqMenu
             Instance.audioManager?.StopPreview();
         }
 
-        #region AccuracyBar Patches
+        #region Gameplay UI
         private static AccuracyBar _accuracyBar;
+        private static ProgressBar _progressBar;
 
         private static void InitializeAccuracyBar() {
             Debug.Log("[AccuracyBar] InitializeAccuracyBar called");
@@ -302,6 +304,15 @@ namespace RiqMenu
                 Debug.Log("[AccuracyBar] Creating AccuracyBar instance");
                 var go = new GameObject("RiqMenu_AccuracyBar");
                 _accuracyBar = go.AddComponent<AccuracyBar>();
+                DontDestroyOnLoad(go);
+            }
+        }
+
+        private static void InitializeProgressBar() {
+            if (_progressBar == null) {
+                Debug.Log("[ProgressBar] Creating ProgressBar instance");
+                var go = new GameObject("RiqMenu_ProgressBar");
+                _progressBar = go.AddComponent<ProgressBar>();
                 DontDestroyOnLoad(go);
             }
         }
@@ -428,17 +439,25 @@ namespace RiqMenu
             }
 
             if (shouldRestart) {
+                // Set transitioning flag IMMEDIATELY to prevent further UI updates
+                _isTransitioning = true;
+                _gameplayReady = false;
                 _pendingRestart = true;
                 _restartDelay = 0.3f; // Small delay before restart
+
+                // Hide gameplay UI immediately to prevent crashes during transition
+                _accuracyBar?.Hide();
+                _progressBar?.Hide();
+
                 Debug.Log($"[RiqMenu] Auto-restart triggered: {mode}, judgement={judgement}");
             }
         }
 
         private void LateUpdate() {
-            if (_isQuitting || _isTransitioning) return;
+            if (_isQuitting) return;
             try {
-                // Handle gameplay grace period
-                if (!_gameplayReady && _gameplayGraceTimer > 0) {
+                // Handle gameplay grace period (only when not transitioning)
+                if (!_isTransitioning && !_gameplayReady && _gameplayGraceTimer > 0) {
                     _gameplayGraceTimer -= Time.deltaTime;
                     if (_gameplayGraceTimer <= 0) {
                         _gameplayReady = true;
@@ -446,7 +465,7 @@ namespace RiqMenu
                     }
                 }
 
-                // Handle pending restart
+                // Handle pending restart (must still run during transition to complete the restart)
                 if (_pendingRestart && _restartDelay > 0) {
                     _restartDelay -= Time.deltaTime;
                     if (_restartDelay <= 0) {
@@ -514,7 +533,7 @@ namespace RiqMenu
                 _pendingRestart = false;
                 _restartDelay = 0f;
 
-                // Only show accuracy bar during gameplay, not menu music
+                // Only show UI during gameplay, not menu music
                 var sceneKey = TempoSceneManager.GetActiveSceneKey();
                 bool isGameplay = TempoSceneManager.IsGameScene(sceneKey) ||
                                   TempoSceneManager.IsTutorialScene(sceneKey) ||
@@ -532,24 +551,30 @@ namespace RiqMenu
                     _gameplayGraceTimer = 0f;
                 }
 
-                // Check if accuracy bar is enabled in settings
-                if (!RiqMenuSettings.AccuracyBarEnabled)
-                    return;
-
                 if (!isGameplay)
                     return;
 
-                InitializeAccuracyBar();
-                _accuracyBar?.Show();
-                _accuracyBar?.ClearIndicators();
+                // Show accuracy bar if enabled
+                if (RiqMenuSettings.AccuracyBarEnabled) {
+                    InitializeAccuracyBar();
+                    _accuracyBar?.Show();
+                    _accuracyBar?.ClearIndicators();
+                }
+
+                // Show progress bar if enabled
+                if (RiqMenuSettings.ProgressBarEnabled) {
+                    InitializeProgressBar();
+                    _progressBar?.Show();
+                }
             }
         }
 
         [HarmonyPatch(typeof(JudgementScript), "Play")]
         private static class JudgementScriptPlayPatch {
             private static void Prefix() {
-                Debug.Log("[AccuracyBar] JudgementScript.Play - hiding bar");
+                Debug.Log("[RiqMenu] JudgementScript.Play - hiding gameplay UI");
                 _accuracyBar?.Hide();
+                _progressBar?.Hide();
             }
         }
 

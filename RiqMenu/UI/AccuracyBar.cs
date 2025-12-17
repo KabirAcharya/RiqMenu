@@ -142,20 +142,25 @@ namespace RiqMenu.UI {
         /// </summary>
         public void RegisterHit(float delta, Judgement judgement) {
             if (!_isVisible) return;
+            if (_barRect == null || _barContainer == null) return;
 
-            // Clamp delta to the Almost window
-            float clampedDelta = Mathf.Clamp(delta, -ALMOST_WINDOW, ALMOST_WINDOW);
+            try {
+                // Clamp delta to the Almost window
+                float clampedDelta = Mathf.Clamp(delta, -ALMOST_WINDOW, ALMOST_WINDOW);
 
-            // Convert delta to position on bar (-1 to 1 range, then to pixels)
-            float normalizedPos = clampedDelta / ALMOST_WINDOW;
-            float barWidth = _barRect.sizeDelta.x;
-            float xPos = normalizedPos * (barWidth / 2f);
+                // Convert delta to position on bar (-1 to 1 range, then to pixels)
+                float normalizedPos = clampedDelta / ALMOST_WINDOW;
+                float barWidth = _barRect.sizeDelta.x;
+                float xPos = normalizedPos * (barWidth / 2f);
 
-            // Get color based on judgement
-            Color color = GetColorForJudgement(judgement);
+                // Get color based on judgement
+                Color color = GetColorForJudgement(judgement);
 
-            // Create indicator
-            CreateHitIndicator(xPos, color);
+                // Create indicator
+                CreateHitIndicator(xPos, color);
+            } catch {
+                // Silently ignore errors during scene transitions
+            }
         }
 
         private Color GetColorForJudgement(Judgement judgement) {
@@ -174,23 +179,30 @@ namespace RiqMenu.UI {
         }
 
         private void CreateHitIndicator(float xPos, Color color) {
-            var indicator = new GameObject("HitIndicator");
-            indicator.transform.SetParent(_barContainer.transform, false);
+            // Safety check - don't create during scene transitions
+            if (_barContainer == null || !_barContainer.activeInHierarchy) return;
 
-            var rect = indicator.AddComponent<RectTransform>();
-            rect.anchorMin = new Vector2(0.5f, 0f);
-            rect.anchorMax = new Vector2(0.5f, 1f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.anchoredPosition = new Vector2(xPos, 0f);
-            rect.sizeDelta = new Vector2(INDICATOR_WIDTH, 0f);
+            try {
+                var indicator = new GameObject("HitIndicator");
+                indicator.transform.SetParent(_barContainer.transform, false);
 
-            var img = indicator.AddComponent<Image>();
-            img.color = color;
+                var rect = indicator.AddComponent<RectTransform>();
+                rect.anchorMin = new Vector2(0.5f, 0f);
+                rect.anchorMax = new Vector2(0.5f, 1f);
+                rect.pivot = new Vector2(0.5f, 0.5f);
+                rect.anchoredPosition = new Vector2(xPos, 0f);
+                rect.sizeDelta = new Vector2(INDICATOR_WIDTH, 0f);
 
-            _hitIndicators.Add(indicator);
+                var img = indicator.AddComponent<Image>();
+                img.color = color;
 
-            // Fade out and destroy after lifetime
-            StartCoroutine(FadeAndDestroy(indicator, img, INDICATOR_LIFETIME));
+                _hitIndicators.Add(indicator);
+
+                // Fade out and destroy after lifetime
+                StartCoroutine(FadeAndDestroy(indicator, img, INDICATOR_LIFETIME));
+            } catch {
+                // Silently ignore errors during scene transitions
+            }
         }
 
         private System.Collections.IEnumerator FadeAndDestroy(GameObject obj, Image img, float lifetime) {
@@ -233,6 +245,10 @@ namespace RiqMenu.UI {
 
         public void Hide() {
             _isVisible = false;
+
+            // Stop all coroutines to prevent accessing destroyed objects during scene transitions
+            StopAllCoroutines();
+
             if (_barContainer != null)
                 _barContainer.SetActive(false);
 

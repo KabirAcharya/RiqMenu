@@ -42,6 +42,8 @@ namespace RiqMenu.UI.Toolkit {
         private bool _accuracyBarValue;
         private Button _autoRestartToggle;
         private AutoRestartMode _autoRestartValue;
+        private Button _progressBarToggle;
+        private bool _progressBarValue;
         private int _selectedSettingIndex = 0;
         private List<VisualElement> _settingsRows = new List<VisualElement>();
 
@@ -860,6 +862,21 @@ namespace RiqMenu.UI.Toolkit {
             );
             _settingsRows.Add(autoRestartRow);
             container.Add(autoRestartRow);
+
+            // Progress Bar toggle
+            _progressBarValue = RiqMenuSettings.ProgressBarEnabled;
+            var progressBarRow = CreateSettingsToggle(
+                "Progress Bar",
+                "Show song progress at top of screen",
+                _progressBarValue,
+                (value) => {
+                    _progressBarValue = value;
+                    RiqMenuSettings.ProgressBarEnabled = value;
+                },
+                out _progressBarToggle
+            );
+            _settingsRows.Add(progressBarRow);
+            container.Add(progressBarRow);
 
             // Update selection highlight
             UpdateSettingsSelection();
@@ -2013,6 +2030,12 @@ namespace RiqMenu.UI.Toolkit {
                         // Auto-Restart toggle (cycles through modes)
                         _autoRestartValue = RiqMenuSettings.CycleAutoRestartMode();
                         UpdateAutoRestartToggle();
+                    }
+                    else if (_selectedSettingIndex == 2 && _progressBarToggle != null) {
+                        // Progress Bar toggle (boolean)
+                        _progressBarValue = !_progressBarValue;
+                        UpdateToggleStyle(_progressBarToggle, _progressBarValue);
+                        RiqMenuSettings.ProgressBarEnabled = _progressBarValue;
                     }
                     return;
                 }

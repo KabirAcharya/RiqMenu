@@ -19,9 +19,11 @@ namespace RiqMenu.Core
     {
         private const string ACCURACY_BAR_KEY = "RiqMenu_AccuracyBarEnabled";
         private const string AUTO_RESTART_KEY = "RiqMenu_AutoRestartMode";
+        private const string PROGRESS_BAR_KEY = "RiqMenu_ProgressBarEnabled";
 
         private static bool? _accuracyBarEnabled;
         private static AutoRestartMode? _autoRestartMode;
+        private static bool? _progressBarEnabled;
 
         /// <summary>
         /// Whether the accuracy bar is enabled during gameplay. Off by default.
@@ -74,6 +76,27 @@ namespace RiqMenu.Core
             var next = (AutoRestartMode)(((int)current + 1) % 3);
             AutoRestartMode = next;
             return next;
+        }
+
+        /// <summary>
+        /// Whether the progress bar is enabled during gameplay. Off by default.
+        /// </summary>
+        public static bool ProgressBarEnabled
+        {
+            get
+            {
+                if (!_progressBarEnabled.HasValue)
+                {
+                    _progressBarEnabled = PlayerPrefs.GetInt(PROGRESS_BAR_KEY, 0) == 1;
+                }
+                return _progressBarEnabled.Value;
+            }
+            set
+            {
+                _progressBarEnabled = value;
+                PlayerPrefs.SetInt(PROGRESS_BAR_KEY, value ? 1 : 0);
+                PlayerPrefs.Save();
+            }
         }
     }
 }
