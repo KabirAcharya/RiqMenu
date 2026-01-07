@@ -144,24 +144,17 @@ namespace RiqMenu
                 _gameplayGraceTimer = 0f;
                 JudgeHandleMissesPatch.ResetState();
 
-                // Hide gameplay UI and stop music when not in a gameplay scene
-                try {
-                    var sceneKey = TempoSceneManager.GetActiveSceneKey();
-                    bool isGameplay = TempoSceneManager.IsGameScene(sceneKey) ||
-                                      TempoSceneManager.IsTutorialScene(sceneKey) ||
-                                      sceneKey == SceneKey.RiqLoader ||
-                                      sceneKey == SceneKey.MixtapeCustom ||
-                                      scene.name.Contains("Mixtape");
-                    if (!isGameplay) {
-                        _accuracyBar?.Hide();
-                        _progressBar?.Hide();
-                        // Stop any playing music to prevent overlap
-                        StopGameMusic();
-                    }
-                } catch {
-                    // If we can't determine, hide the UI and stop music to be safe
+                // Hide gameplay UI and stop music when in a menu scene
+                // Use scene name directly since TempoSceneManager may not be updated yet
+                bool isMenuScene = scene.name == SceneKey.TitleScreen.ToString() ||
+                                   scene.name == SceneKey.StageSelect.ToString() ||
+                                   scene.name == "StageSelectDemo" ||
+                                   scene.name == "Postcard" ||
+                                   scene.name == "Credits";
+                if (isMenuScene) {
                     _accuracyBar?.Hide();
                     _progressBar?.Hide();
+                    // Stop any playing music to prevent overlap
                     StopGameMusic();
                 }
             }
@@ -401,7 +394,7 @@ namespace RiqMenu
         /// <summary>
         /// Patch HandleMisses to detect implicit misses (notes that pass without any input)
         /// </summary>
-        [HarmonyPatch(typeof(Judge), "HandleMisses", new Type[] { typeof(BeatQueue), typeof(double), typeof(Judge.OnMiss) })]
+        [HarmonyPatch(typeof(Judge), "HandleMisses", new Type[] { typeof(BeatQueue), typeof(double), typeof(global::Action), typeof(Judge.OnMiss) })]
         private static class JudgeHandleMissesPatch {
             private static int _lastMissCount = -1;
             private const float MISS_DISPLAY_DELTA = 0.2f;
