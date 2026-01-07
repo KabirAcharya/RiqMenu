@@ -162,6 +162,7 @@ namespace RiqMenu
             if (scene.name == SceneKey.TitleScreen.ToString()) {
                 Instance.riqPath = null;
                 LaunchedFromRiqMenu = false; // Reset flag when returning to title
+                _lastLoadedSongPath = null; // Clear stored path
                 StopPreview();
 
                 TitleScript title = GameObject.Find("TitleScript").GetComponent<TitleScript>();
@@ -249,10 +250,22 @@ namespace RiqMenu
             }
         }
 
+        // Store the last loaded song path for restart support
+        private static string _lastLoadedSongPath = null;
+
         [HarmonyPatch(typeof(RiqLoader), "Awake", [])]
         private static class RiqLoaderAwakePatch {
             private static void Postfix() {
-                RiqLoader.path = null;
+                // If we have a stored path (from restart), restore it
+                if (!string.IsNullOrEmpty(_lastLoadedSongPath) && string.IsNullOrEmpty(RiqLoader.path)) {
+                    RiqLoader.path = _lastLoadedSongPath;
+                    Debug.Log($"[RiqMenu] Restored song path for restart: {_lastLoadedSongPath}");
+                }
+                // Store the current path for potential restart
+                else if (!string.IsNullOrEmpty(RiqLoader.path)) {
+                    _lastLoadedSongPath = RiqLoader.path;
+                    Debug.Log($"[RiqMenu] Stored song path: {_lastLoadedSongPath}");
+                }
             }
         }
 
@@ -274,39 +287,56 @@ namespace RiqMenu
         }
 
         /// <summary>
-        /// Patch Quitter.Quit to redirect to TitleScreen when exiting a RiqMenu-launched song.
-        /// This handles the pause menu quit path.
+        /// Patch Quitter.Quit to hide UI and handle redirects for RiqMenu songs
         /// </summary>
         [HarmonyPatch(typeof(Quitter), "Quit")]
         private static class QuitterQuitPatch {
             private static void Prefix(Quitter __instance, ref SceneKey? quitScene) {
-                // Only act if not prevented (pause menu sets PreventQuit = true)
                 if (__instance.PreventQuit)
                     return;
 
-                // Hide gameplay UI when actually quitting
-                _accuracyBar?.Hide();
-                _progressBar?.Hide();
+                var activeSceneKey = TempoSceneManager.GetActiveSceneKey();
+                Debug.Log($"[RiqMenu] Quitter.Quit called: quitScene={quitScene}, activeSceneKey={activeSceneKey}, LaunchedFromRiqMenu={LaunchedFromRiqMenu}, currentScene={currentScene.name}");
 
-                // Only redirect if song was launched from RiqMenu and target is StageSelect
+                // Never interfere with restart (going to RiqLoader)
+                if (quitScene.HasValue && quitScene.Value == SceneKey.RiqLoader) {
+                    Debug.Log("[RiqMenu] Going to RiqLoader - not redirecting (restart)");
+                    return;
+                }
+
+                // Hide gameplay UI when quitting to menu scenes
+                if (quitScene.HasValue &&
+                    (quitScene.Value == SceneKey.StageSelect || quitScene.Value == SceneKey.TitleScreen)) {
+                    _accuracyBar?.Hide();
+                    _progressBar?.Hide();
+                }
+
+                // If launched from RiqMenu and going to StageSelect, redirect to TitleScreen
                 if (LaunchedFromRiqMenu && quitScene.HasValue && quitScene.Value == SceneKey.StageSelect) {
                     quitScene = SceneKey.TitleScreen;
-                    Debug.Log("[RiqMenu] Redirecting quit from StageSelect to TitleScreen");
+                    Debug.Log("[RiqMenu] Redirecting to TitleScreen");
                 }
             }
         }
 
         /// <summary>
-        /// Patch TempoSceneManager.LoadSceneAsync to redirect to TitleScreen when exiting a RiqMenu-launched song.
-        /// This handles the postcard/results screen exit path.
+        /// Patch TempoSceneManager.LoadSceneAsync for debugging and redirect
         /// </summary>
         [HarmonyPatch(typeof(TempoSceneManager), "LoadSceneAsync", new Type[] { typeof(SceneKey), typeof(float) })]
         private static class TempoSceneManagerLoadSceneAsyncPatch {
             private static void Prefix(ref SceneKey scene) {
-                // Only redirect if song was launched from RiqMenu and target is StageSelect
+                Debug.Log($"[RiqMenu] LoadSceneAsync called: scene={scene}, LaunchedFromRiqMenu={LaunchedFromRiqMenu}, currentScene={currentScene.name}");
+
+                // Never interfere with RiqLoader (restart)
+                if (scene == SceneKey.RiqLoader) {
+                    Debug.Log("[RiqMenu] Going to RiqLoader - not redirecting");
+                    return;
+                }
+
+                // If launched from RiqMenu and going to StageSelect, redirect to TitleScreen
                 if (LaunchedFromRiqMenu && scene == SceneKey.StageSelect) {
                     scene = SceneKey.TitleScreen;
-                    Debug.Log("[RiqMenu] Redirecting LoadSceneAsync from StageSelect to TitleScreen");
+                    Debug.Log("[RiqMenu] Redirecting LoadSceneAsync to TitleScreen");
                 }
             }
         }
