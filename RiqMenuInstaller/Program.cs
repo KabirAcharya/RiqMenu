@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Win32;
@@ -18,11 +19,40 @@ class Program
     // Track user's choice for reinstalling BepInEx across multiple installations
     private static bool? _reinstallBepInExChoice = null;
 
+    private enum Platform
+    {
+        Windows,
+        Linux,
+        MacOS
+    }
+
+    private static Platform _platform;
+
+    private static Platform DetectPlatform()
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            return Platform.Windows;
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            return Platform.Linux;
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            return Platform.MacOS;
+
+        // Fallback
+        return Platform.Windows;
+    }
+
     static async Task<int> Main(string[] args)
     {
-        Console.Title = "RiqMenu Installer";
+        _platform = DetectPlatform();
+
+        // Console.Title only works reliably on Windows
+        if (_platform == Platform.Windows)
+        {
+            try { Console.Title = "RiqMenu Installer"; } catch { }
+        }
 
         PrintHeader();
+        PrintCyan($"Platform: {_platform}");
 
         try
         {
@@ -143,47 +173,128 @@ class Program
         Console.ResetColor();
     }
 
-    static async Task<List<string>> FindGamePaths()
+    static List<string> GetDefaultSteamLibraries()
     {
-        PrintYellow("Searching for Bits & Bops installations...");
+        var libraries = new List<string>();
 
-        var steamLibraries = new List<string>
+        switch (_platform)
         {
-            @"C:\Program Files (x86)\Steam",
-            @"C:\Program Files\Steam",
-            @"D:\Steam",
-            @"D:\SteamLibrary",
-            @"E:\Steam",
-            @"E:\SteamLibrary"
-        };
+            case Platform.Windows:
+                libraries.AddRange(new[]
+                {
+                    @"C:\Program Files (x86)\Steam",
+                    @"C:\Program Files\Steam",
+                    @"D:\Steam",
+                    @"D:\SteamLibrary",
+                    @"E:\Steam",
+                    @"E:\SteamLibrary"
+                });
+                break;
 
-        // Try to find Steam library folders from registry
-        try
+            case Platform.Linux:
+                var homeLinux = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                libraries.AddRange(new[]
+                {
+                    Path.Combine(homeLinux, ".steam", "steam"),
+                    Path.Combine(homeLinux, ".steam", "debian-installation"),
+                    Path.Combine(homeLinux, ".local", "share", "Steam"),
+                    "/usr/share/steam",
+                    "/usr/local/share/steam"
+                });
+                // Flatpak Steam
+                var flatpakSteam = Path.Combine(homeLinux, ".var", "app", "com.valvesoftware.Steam", ".steam", "steam");
+                if (Directory.Exists(flatpakSteam))
+                    libraries.Add(flatpakSteam);
+                break;
+
+            case Platform.MacOS:
+                var homeMac = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                libraries.Add(Path.Combine(homeMac, "Library", "Application Support", "Steam"));
+                break;
+        }
+
+        return libraries;
+    }
+
+    static async Task AddSteamLibraryFolders(List<string> steamLibraries)
+    {
+        string? primarySteamPath = null;
+
+        // Try to find Steam path from registry (Windows only)
+        if (_platform == Platform.Windows && OperatingSystem.IsWindows())
         {
-            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam");
-            var steamPath = key?.GetValue("SteamPath") as string;
-            if (!string.IsNullOrEmpty(steamPath))
+            try
             {
-                steamLibraries.Insert(0, steamPath);
+                using var key = Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam");
+                primarySteamPath = key?.GetValue("SteamPath") as string;
+            }
+            catch { }
+        }
 
-                var libraryFile = Path.Combine(steamPath, "steamapps", "libraryfolders.vdf");
-                if (File.Exists(libraryFile))
+        // On Linux/macOS, use the first existing library as primary
+        if (primarySteamPath == null)
+        {
+            primarySteamPath = steamLibraries.FirstOrDefault(Directory.Exists);
+        }
+
+        if (!string.IsNullOrEmpty(primarySteamPath))
+        {
+            if (!steamLibraries.Contains(primarySteamPath))
+                steamLibraries.Insert(0, primarySteamPath);
+
+            // Parse libraryfolders.vdf for additional libraries
+            var libraryFile = Path.Combine(primarySteamPath, "steamapps", "libraryfolders.vdf");
+            if (File.Exists(libraryFile))
+            {
+                try
                 {
                     var content = await File.ReadAllTextAsync(libraryFile);
                     var matches = Regex.Matches(content, @"""path""\s+""([^""]+)""");
                     foreach (Match match in matches)
                     {
-                        var libPath = match.Groups[1].Value.Replace(@"\\", @"\");
-                        if (!steamLibraries.Contains(libPath))
+                        var libPath = match.Groups[1].Value;
+                        // Handle escaped backslashes on Windows
+                        if (_platform == Platform.Windows)
+                            libPath = libPath.Replace(@"\\", @"\");
+
+                        if (!steamLibraries.Any(l => l.Equals(libPath, StringComparison.OrdinalIgnoreCase)))
                             steamLibraries.Add(libPath);
                     }
                 }
+                catch { }
             }
         }
-        catch
+    }
+
+    static bool HasGameExecutable(string path)
+    {
+        switch (_platform)
         {
-            // Ignore registry errors
+            case Platform.Windows:
+                return Directory.GetFiles(path, "*.exe").Length > 0;
+
+            case Platform.Linux:
+                // Look for executable files (no extension typically)
+                var linuxExes = new[] { "Bits & Bops", "Bits & Bops Demo", "Bits & Bops.x86_64", "Bits & Bops Demo.x86_64" };
+                return linuxExes.Any(exe => File.Exists(Path.Combine(path, exe)));
+
+            case Platform.MacOS:
+                // Look for .app bundles
+                return Directory.GetDirectories(path, "*.app").Length > 0;
+
+            default:
+                return Directory.GetFiles(path, "*.exe").Length > 0;
         }
+    }
+
+    static async Task<List<string>> FindGamePaths()
+    {
+        PrintYellow("Searching for Bits & Bops installations...");
+
+        var steamLibraries = GetDefaultSteamLibraries();
+
+        // Try to find additional Steam library folders
+        await AddSteamLibraryFolders(steamLibraries);
 
         // Game folder names to look for
         var gameNames = new[] { "Bits & Bops", "Bits & Bops Demo" };
@@ -194,7 +305,7 @@ class Program
             foreach (var gameName in gameNames)
             {
                 var path = Path.Combine(library, "steamapps", "common", gameName);
-                if (Directory.Exists(path) && Directory.GetFiles(path, "*.exe").Length > 0)
+                if (Directory.Exists(path) && HasGameExecutable(path))
                 {
                     if (!foundInstallations.Any(i => i.Path.Equals(path, StringComparison.OrdinalIgnoreCase)))
                     {
@@ -320,6 +431,15 @@ class Program
         if (releases.GetArrayLength() == 0)
             throw new Exception("Could not fetch BepInEx releases");
 
+        // Determine the BepInEx asset pattern for this platform
+        string bepinexPattern = _platform switch
+        {
+            Platform.Windows => @"BepInEx_(x64|win_x64).*\.zip$",
+            Platform.Linux => @"BepInEx_(unix|linux_x64).*\.zip$",
+            Platform.MacOS => @"BepInEx_(unix|macos_x64).*\.zip$",
+            _ => @"BepInEx_(x64|win_x64).*\.zip$"
+        };
+
         // Find latest stable 5.x release
         string? downloadUrl = null;
         string? version = null;
@@ -335,7 +455,7 @@ class Program
                 foreach (var asset in assets.EnumerateArray())
                 {
                     var name = asset.GetProperty("name").GetString() ?? "";
-                    if (Regex.IsMatch(name, @"BepInEx_(x64|win_x64).*\.zip$", RegexOptions.IgnoreCase))
+                    if (Regex.IsMatch(name, bepinexPattern, RegexOptions.IgnoreCase))
                     {
                         downloadUrl = asset.GetProperty("browser_download_url").GetString();
                         version = tagName;
@@ -343,11 +463,27 @@ class Program
                     }
                 }
                 if (downloadUrl != null) break;
+
+                // Fallback: For Linux/macOS, also try the generic "unix" build
+                if (downloadUrl == null && _platform != Platform.Windows)
+                {
+                    foreach (var asset in assets.EnumerateArray())
+                    {
+                        var name = asset.GetProperty("name").GetString() ?? "";
+                        if (Regex.IsMatch(name, @"BepInEx_unix.*\.zip$", RegexOptions.IgnoreCase))
+                        {
+                            downloadUrl = asset.GetProperty("browser_download_url").GetString();
+                            version = tagName;
+                            break;
+                        }
+                    }
+                }
+                if (downloadUrl != null) break;
             }
         }
 
         if (downloadUrl == null)
-            throw new Exception("Could not find a suitable BepInEx 5.x release");
+            throw new Exception($"Could not find a suitable BepInEx 5.x release for {_platform}");
 
         PrintYellow($"Downloading BepInEx {version}...");
 
@@ -370,7 +506,45 @@ class Program
 
             // Copy to game folder
             PrintYellow("Installing BepInEx to game folder...");
-            CopyDirectory(tempExtract, gamePath);
+
+            // On macOS, we need to install to the .app bundle's Contents folder
+            string installPath = gamePath;
+            if (_platform == Platform.MacOS)
+            {
+                var appBundle = Directory.GetDirectories(gamePath, "*.app").FirstOrDefault();
+                if (appBundle != null)
+                {
+                    installPath = Path.Combine(appBundle, "Contents");
+                    Directory.CreateDirectory(installPath);
+                }
+            }
+
+            CopyDirectory(tempExtract, installPath);
+
+            // On Unix, make the run_bepinex.sh script executable
+            if (_platform != Platform.Windows)
+            {
+                var runScript = Path.Combine(installPath, "run_bepinex.sh");
+                if (File.Exists(runScript))
+                {
+                    try
+                    {
+                        var chmod = new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = "chmod",
+                            Arguments = $"+x \"{runScript}\"",
+                            UseShellExecute = false,
+                            CreateNoWindow = true
+                        };
+                        System.Diagnostics.Process.Start(chmod)?.WaitForExit();
+                        PrintYellow("Made run_bepinex.sh executable");
+                    }
+                    catch { }
+                }
+
+                // Print Unix-specific instructions
+                PrintYellow("Note: On Linux/macOS, you may need to run the game via run_bepinex.sh");
+            }
 
             PrintGreen($"BepInEx {version} installed successfully!");
         }
@@ -414,7 +588,24 @@ class Program
         if (downloadUrl == null)
             throw new Exception("Could not find RiqMenu.dll in the latest release");
 
-        var pluginsPath = Path.Combine(gamePath, "BepInEx", "plugins");
+        // Determine plugins path based on platform
+        string pluginsPath;
+        if (_platform == Platform.MacOS)
+        {
+            var appBundle = Directory.GetDirectories(gamePath, "*.app").FirstOrDefault();
+            if (appBundle != null)
+            {
+                pluginsPath = Path.Combine(appBundle, "Contents", "BepInEx", "plugins");
+            }
+            else
+            {
+                pluginsPath = Path.Combine(gamePath, "BepInEx", "plugins");
+            }
+        }
+        else
+        {
+            pluginsPath = Path.Combine(gamePath, "BepInEx", "plugins");
+        }
         Directory.CreateDirectory(pluginsPath);
 
         PrintYellow($"Downloading RiqMenu {version}...");
@@ -448,9 +639,42 @@ class Program
         // Find the Data folder - could be "Bits & Bops_Data" or "Bits & Bops Demo_Data"
         var dataFolders = new[] { "Bits & Bops_Data", "Bits & Bops Demo_Data" };
 
+        // On macOS, the Data folder is inside the .app bundle
+        string searchPath = gamePath;
+        if (_platform == Platform.MacOS)
+        {
+            var appBundle = Directory.GetDirectories(gamePath, "*.app").FirstOrDefault();
+            if (appBundle != null)
+            {
+                // Unity macOS structure: Game.app/Contents/Resources/Data
+                var resourcesData = Path.Combine(appBundle, "Contents", "Resources", "Data");
+                if (Directory.Exists(resourcesData))
+                {
+                    var songsPath = Path.Combine(resourcesData, "StreamingAssets", "RiqMenu");
+                    if (!Directory.Exists(songsPath))
+                    {
+                        Directory.CreateDirectory(songsPath);
+                    }
+                    return songsPath;
+                }
+
+                // Alternative Unity structure: Game.app/Contents/Data
+                var contentsData = Path.Combine(appBundle, "Contents", "Data");
+                if (Directory.Exists(contentsData))
+                {
+                    var songsPath = Path.Combine(contentsData, "StreamingAssets", "RiqMenu");
+                    if (!Directory.Exists(songsPath))
+                    {
+                        Directory.CreateDirectory(songsPath);
+                    }
+                    return songsPath;
+                }
+            }
+        }
+
         foreach (var dataFolder in dataFolders)
         {
-            var dataPath = Path.Combine(gamePath, dataFolder);
+            var dataPath = Path.Combine(searchPath, dataFolder);
             if (Directory.Exists(dataPath))
             {
                 var songsPath = Path.Combine(dataPath, "StreamingAssets", "RiqMenu");
@@ -465,7 +689,7 @@ class Program
         // Fallback: look for any *_Data folder
         try
         {
-            var dataDir = Directory.GetDirectories(gamePath, "*_Data").FirstOrDefault();
+            var dataDir = Directory.GetDirectories(searchPath, "*_Data").FirstOrDefault();
             if (dataDir != null)
             {
                 var songsPath = Path.Combine(dataDir, "StreamingAssets", "RiqMenu");

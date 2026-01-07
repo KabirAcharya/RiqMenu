@@ -72,9 +72,14 @@ namespace RiqMenu
             }
 
             SceneManager.sceneLoaded += OnSceneLoaded;
-            harmony.PatchAll();
 
-            Logger.LogInfo($"Plugin {PluginInfo.PLUGIN_GUID} is loaded!");
+            // Don't apply patches in the editor - they can cause issues
+            if (!Application.isEditor) {
+                harmony.PatchAll();
+                Logger.LogInfo($"Plugin {PluginInfo.PLUGIN_GUID} is loaded!");
+            } else {
+                Logger.LogWarning($"Plugin {PluginInfo.PLUGIN_GUID} loaded in editor - patches disabled");
+            }
         }
 
         private void Update() {
@@ -133,6 +138,32 @@ namespace RiqMenu
 
                 // Reset transition state when scene fully loads
                 _isTransitioning = false;
+
+                // Reset gameplay state to prevent stale data
+                _gameplayReady = false;
+                _gameplayGraceTimer = 0f;
+                JudgeHandleMissesPatch.ResetState();
+
+                // Hide gameplay UI and stop music when not in a gameplay scene
+                try {
+                    var sceneKey = TempoSceneManager.GetActiveSceneKey();
+                    bool isGameplay = TempoSceneManager.IsGameScene(sceneKey) ||
+                                      TempoSceneManager.IsTutorialScene(sceneKey) ||
+                                      sceneKey == SceneKey.RiqLoader ||
+                                      sceneKey == SceneKey.MixtapeCustom ||
+                                      scene.name.Contains("Mixtape");
+                    if (!isGameplay) {
+                        _accuracyBar?.Hide();
+                        _progressBar?.Hide();
+                        // Stop any playing music to prevent overlap
+                        StopGameMusic();
+                    }
+                } catch {
+                    // If we can't determine, hide the UI and stop music to be safe
+                    _accuracyBar?.Hide();
+                    _progressBar?.Hide();
+                    StopGameMusic();
+                }
             }
 
             if (scene.name == SceneKey.TitleScreen.ToString()) {
@@ -294,6 +325,21 @@ namespace RiqMenu
             Instance.audioManager?.StopPreview();
         }
 
+        /// <summary>
+        /// Stop game music to prevent audio overlap when transitioning scenes
+        /// </summary>
+        static void StopGameMusic() {
+            try {
+                var jukebox = FindObjectOfType<JukeboxScript>();
+                if (jukebox != null && jukebox.IsPlaying) {
+                    jukebox.Stop();
+                    Debug.Log("[RiqMenu] Stopped game music on scene transition");
+                }
+            } catch (Exception ex) {
+                Debug.LogWarning($"[RiqMenu] Failed to stop game music: {ex.Message}");
+            }
+        }
+
         #region Gameplay UI
         private static AccuracyBar _accuracyBar;
         private static ProgressBar _progressBar;
@@ -320,7 +366,8 @@ namespace RiqMenu
         [HarmonyPatch(typeof(Judge), "JudgeInput")]
         private static class JudgeInputPatch {
             private static void Postfix(ValueTuple<float, Judgement, float, bool> __result) {
-                if (_isQuitting || _isTransitioning) return;
+                if (_isQuitting || _isTransitioning || IsInGameEditor()) return;
+                if (!_gameplayReady) return; // Wait for grace period
                 try {
                     float target = __result.Item1;
                     Judgement judgement = __result.Item2;
@@ -344,8 +391,8 @@ namespace RiqMenu
                         CheckAutoRestart(Judgement.Miss);
                     }
                     // else: random button press with no beat nearby - ignore
-                } catch {
-                    // Silently ignore errors during shutdown
+                } catch (Exception) {
+                    // Silently ignore errors - don't let RiqMenu crash the game
                 }
             }
         }
@@ -359,27 +406,35 @@ namespace RiqMenu
             private static int _lastMissCount = -1;
             private const float MISS_DISPLAY_DELTA = 0.2f;
 
+            public static void ResetState() {
+                _lastMissCount = -1;
+            }
+
             private static void Prefix(Judge __instance) {
-                if (_isQuitting || _isTransitioning) return;
+                if (_isQuitting || _isTransitioning || IsInGameEditor()) return;
                 try {
-                    if (__instance == null || __instance.implicitJudgements == null) return;
+                    if (__instance == null || __instance.implicitJudgements == null) {
+                        _lastMissCount = -1;
+                        return;
+                    }
                     _lastMissCount = __instance.implicitJudgements[Judgement.Miss];
-                } catch {
+                } catch (Exception) {
                     _lastMissCount = -1;
                 }
             }
 
             private static void Postfix(Judge __instance) {
-                if (_isQuitting || _isTransitioning) return;
+                if (_isQuitting || _isTransitioning || IsInGameEditor()) return;
                 try {
                     // Skip if not ready for gameplay yet (grace period)
                     if (!_gameplayReady) return;
                     if (__instance == null || __instance.implicitJudgements == null) return;
+                    if (_lastMissCount < 0) return; // Prefix failed, skip this frame
 
                     int currentCount = __instance.implicitJudgements[Judgement.Miss];
                     int newMisses = currentCount - _lastMissCount;
 
-                    if (newMisses > 0 && _lastMissCount >= 0) {
+                    if (newMisses > 0) {
                         Debug.Log($"[RiqMenu] Implicit miss detected (count: {_lastMissCount} -> {currentCount})");
 
                         // Show on accuracy bar
@@ -390,8 +445,8 @@ namespace RiqMenu
                         // Check auto-restart
                         CheckAutoRestart(Judgement.Miss);
                     }
-                } catch {
-                    // Silently ignore errors during shutdown
+                } catch (Exception) {
+                    // Silently ignore errors - don't let RiqMenu crash the game
                 }
             }
         }
@@ -405,6 +460,20 @@ namespace RiqMenu
         private static bool _isQuitting = false; // Flag to disable patches during shutdown
         private static bool _isTransitioning = false; // Flag to disable patches during scene transitions
 
+        /// <summary>
+        /// Check if we're in the Bits & Bops level editor - disable gameplay patches there
+        /// </summary>
+        private static bool IsInGameEditor() {
+            try {
+                string sceneName = currentScene.name;
+                if (string.IsNullOrEmpty(sceneName)) return false;
+                // Check for editor scenes (case insensitive)
+                return sceneName.Contains("Editor") || sceneName.Contains("editor");
+            } catch {
+                return false;
+            }
+        }
+
         private void OnApplicationQuit() {
             _isQuitting = true;
             _isTransitioning = true;
@@ -413,43 +482,47 @@ namespace RiqMenu
         }
 
         private static void CheckAutoRestart(Judgement judgement) {
-            if (_isQuitting || _isTransitioning) return;
+            if (_isQuitting || _isTransitioning || IsInGameEditor()) return;
 
-            var mode = RiqMenuSettings.AutoRestartMode;
-            if (mode == AutoRestartMode.Off) return;
+            try {
+                var mode = RiqMenuSettings.AutoRestartMode;
+                if (mode == AutoRestartMode.Off) return;
 
-            // Don't auto-restart if already pending
-            if (_pendingRestart) return;
+                // Don't auto-restart if already pending
+                if (_pendingRestart) return;
 
-            // Check scene - skip tutorials
-            var sceneKey = TempoSceneManager.GetActiveSceneKey();
-            if (TempoSceneManager.IsTutorialScene(sceneKey) || currentScene.name.Contains("Tutorial")) {
-                return;
-            }
+                // Check scene - skip tutorials
+                var sceneKey = TempoSceneManager.GetActiveSceneKey();
+                if (TempoSceneManager.IsTutorialScene(sceneKey) || currentScene.name.Contains("Tutorial")) {
+                    return;
+                }
 
-            // Check if this judgement triggers restart
-            bool shouldRestart = false;
-            if (mode == AutoRestartMode.OnMiss && (judgement == Judgement.Miss || judgement == Judgement.Bad)) {
-                // Only actual misses/bads trigger restart, not "Almost" judgements
-                shouldRestart = true;
-            }
-            else if (mode == AutoRestartMode.OnNonPerfect && judgement != Judgement.Perfect) {
-                // Any non-perfect judgement triggers restart (Hit, Almost, Bad, Miss)
-                shouldRestart = true;
-            }
+                // Check if this judgement triggers restart
+                bool shouldRestart = false;
+                if (mode == AutoRestartMode.OnMiss && (judgement == Judgement.Miss || judgement == Judgement.Bad)) {
+                    // Only actual misses/bads trigger restart, not "Almost" judgements
+                    shouldRestart = true;
+                }
+                else if (mode == AutoRestartMode.OnNonPerfect && judgement != Judgement.Perfect) {
+                    // Any non-perfect judgement triggers restart (Hit, Almost, Bad, Miss)
+                    shouldRestart = true;
+                }
 
-            if (shouldRestart) {
-                // Set transitioning flag IMMEDIATELY to prevent further UI updates
-                _isTransitioning = true;
-                _gameplayReady = false;
-                _pendingRestart = true;
-                _restartDelay = 0.3f; // Small delay before restart
+                if (shouldRestart) {
+                    // Set transitioning flag IMMEDIATELY to prevent further UI updates
+                    _isTransitioning = true;
+                    _gameplayReady = false;
+                    _pendingRestart = true;
+                    _restartDelay = 0.3f; // Small delay before restart
 
-                // Hide gameplay UI immediately to prevent crashes during transition
-                _accuracyBar?.Hide();
-                _progressBar?.Hide();
+                    // Hide gameplay UI immediately to prevent crashes during transition
+                    _accuracyBar?.Hide();
+                    _progressBar?.Hide();
 
-                Debug.Log($"[RiqMenu] Auto-restart triggered: {mode}, judgement={judgement}");
+                    Debug.Log($"[RiqMenu] Auto-restart triggered: {mode}, judgement={judgement}");
+                }
+            } catch (Exception) {
+                // Silently ignore errors - don't let RiqMenu crash the game
             }
         }
 
@@ -526,7 +599,7 @@ namespace RiqMenu
         [HarmonyPatch(typeof(JukeboxScript), "Play")]
         private static class JukeboxScriptPlayPatch {
             private static void Postfix() {
-                if (_isQuitting) return;
+                if (_isQuitting || IsInGameEditor()) return;
 
                 // Reset transition state and pending restart when new song starts
                 _isTransitioning = false;
