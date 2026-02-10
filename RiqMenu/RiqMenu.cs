@@ -2,6 +2,7 @@ using BepInEx;
 using HarmonyLib;
 using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -143,6 +144,11 @@ namespace RiqMenu
                 _gameplayReady = false;
                 _gameplayGraceTimer = 0f;
                 JudgeHandleMissesPatch.ResetState();
+
+                // Flush stale input events
+                PendingHitEvent _discard;
+                while (_pendingHits.TryDequeue(out _discard)) { }
+                _pendingAutoRestartJudgement = NO_PENDING_JUDGEMENT;
 
                 // Hide gameplay UI and stop music when in a menu scene
                 // Use scene name directly since TempoSceneManager may not be updated yet
@@ -367,6 +373,14 @@ namespace RiqMenu
         private static AccuracyBar _accuracyBar;
         private static ProgressBar _progressBar;
 
+        private struct PendingHitEvent {
+            public float delta;
+            public Judgement judgement;
+        }
+        private static readonly ConcurrentQueue<PendingHitEvent> _pendingHits = new ConcurrentQueue<PendingHitEvent>();
+        private static volatile Judgement _pendingAutoRestartJudgement = (Judgement)(-99);
+        private const Judgement NO_PENDING_JUDGEMENT = (Judgement)(-99);
+
         private static void InitializeAccuracyBar() {
             Debug.Log("[AccuracyBar] InitializeAccuracyBar called");
             if (_accuracyBar == null) {
@@ -402,16 +416,12 @@ namespace RiqMenu
                     bool hasBeat = !float.IsInfinity(target);
 
                     if (taken) {
-                        // Beat was hit within almostWindow
-                        Debug.Log($"[AccuracyBar] JudgeInput: delta={delta}, judgement={judgement}");
-                        _accuracyBar?.RegisterHit(delta, judgement);
-                        CheckAutoRestart(judgement);
+                        _pendingHits.Enqueue(new PendingHitEvent { delta = delta, judgement = judgement });
+                        _pendingAutoRestartJudgement = judgement;
                     }
                     else if (hasBeat && judgement == Judgement.Miss) {
-                        // Beat exists but timing was outside almostWindow (clicked miss)
-                        Debug.Log($"[AccuracyBar] Clicked miss: delta={delta}");
-                        _accuracyBar?.RegisterHit(delta, Judgement.Miss);
-                        CheckAutoRestart(Judgement.Miss);
+                        _pendingHits.Enqueue(new PendingHitEvent { delta = delta, judgement = Judgement.Miss });
+                        _pendingAutoRestartJudgement = Judgement.Miss;
                     }
                     // else: random button press with no beat nearby - ignore
                 } catch (Exception) {
@@ -446,6 +456,7 @@ namespace RiqMenu
                 }
             }
 
+            // Runs on native input thread - no Unity calls allowed
             private static void Postfix(Judge __instance) {
                 if (_isQuitting || _isTransitioning || IsInGameEditor()) return;
                 try {
@@ -458,15 +469,10 @@ namespace RiqMenu
                     int newMisses = currentCount - _lastMissCount;
 
                     if (newMisses > 0) {
-                        Debug.Log($"[RiqMenu] Implicit miss detected (count: {_lastMissCount} -> {currentCount})");
-
-                        // Show on accuracy bar
                         for (int i = 0; i < newMisses; i++) {
-                            _accuracyBar?.RegisterHit(MISS_DISPLAY_DELTA, Judgement.Miss);
+                            _pendingHits.Enqueue(new PendingHitEvent { delta = MISS_DISPLAY_DELTA, judgement = Judgement.Miss });
                         }
-
-                        // Check auto-restart
-                        CheckAutoRestart(Judgement.Miss);
+                        _pendingAutoRestartJudgement = Judgement.Miss;
                     }
                 } catch (Exception) {
                     // Silently ignore errors - don't let RiqMenu crash the game
@@ -552,6 +558,19 @@ namespace RiqMenu
         private void LateUpdate() {
             if (_isQuitting) return;
             try {
+                // Drain hit events queued from the input thread
+                PendingHitEvent hitEvent;
+                while (_pendingHits.TryDequeue(out hitEvent)) {
+                    if (_isTransitioning || !_gameplayReady) continue;
+                    _accuracyBar?.RegisterHit(hitEvent.delta, hitEvent.judgement);
+                }
+
+                Judgement restartJudgement = _pendingAutoRestartJudgement;
+                if (restartJudgement != NO_PENDING_JUDGEMENT) {
+                    _pendingAutoRestartJudgement = NO_PENDING_JUDGEMENT;
+                    CheckAutoRestart(restartJudgement);
+                }
+
                 // Handle gameplay grace period (only when not transitioning)
                 if (!_isTransitioning && !_gameplayReady && _gameplayGraceTimer > 0) {
                     _gameplayGraceTimer -= Time.deltaTime;
