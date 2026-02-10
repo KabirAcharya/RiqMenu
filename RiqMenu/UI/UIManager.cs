@@ -80,22 +80,11 @@ namespace RiqMenu.UI
             var song = songManager?.GetSong(songIndex);
 
             if (song != null) {
-                var riqMenu = FindObjectOfType<RiqMenuMain>();
-                if (riqMenu != null) {
-                    // Set up the song path for RiqLoader
-                    riqMenu.riqPath = song.riq;
-                    RiqLoader.path = song.riq;
+                RiqLoader.path = song.riq;
+                RiqMenuState.LaunchedFromRiqMenu = true;
 
-                    // Mark that this song was launched from RiqMenu for proper exit handling
-                    RiqMenuMain.LaunchedFromRiqMenu = true;
-
-                    Debug.Log($"[UIManager] Loading song: {song.SongTitle} from path: {song.riq}");
-
-                    UnityEngine.SceneManagement.SceneManager.LoadScene(SceneKey.RiqLoader.ToString());
-                }
-                else {
-                    Debug.LogError("[UIManager] Could not find RiqMenuMain instance");
-                }
+                Debug.Log($"[UIManager] Loading song: {song.SongTitle} from path: {song.riq}");
+                UnityEngine.SceneManagement.SceneManager.LoadScene(SceneKey.RiqLoader.ToString());
             }
         }
     }

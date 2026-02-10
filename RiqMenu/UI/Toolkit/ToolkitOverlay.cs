@@ -2213,7 +2213,7 @@ namespace RiqMenu.UI.Toolkit {
             }
 
             // Only allow showing on menu screens, not during gameplay
-            string sceneName = RiqMenuMain.currentScene.name;
+            string sceneName = RiqMenuState.CurrentScene.name;
             if (sceneName != SceneKey.TitleScreen.ToString() &&
                 sceneName != SceneKey.StageSelect.ToString() &&
                 sceneName != "StageSelectDemo") {

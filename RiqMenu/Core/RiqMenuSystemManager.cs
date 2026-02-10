@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using RiqMenu.Audio;
+using RiqMenu.Gameplay;
 using RiqMenu.Songs;
 using RiqMenu.UI;
 using RiqMenu.Input;
@@ -26,6 +27,7 @@ namespace RiqMenu.Core
         public AudioManager AudioManager { get; private set; }
         public UIManager UIManager { get; private set; }
         public RiqMenu.Input.RiqInputManager InputManager { get; private set; }
+        public GameplaySystem GameplaySystem { get; private set; }
 
         private bool _isInitialized = false;
 
@@ -45,11 +47,13 @@ namespace RiqMenu.Core
             AudioManager = gameObject.AddComponent<AudioManager>();
             InputManager = gameObject.AddComponent<RiqMenu.Input.RiqInputManager>();
             UIManager = gameObject.AddComponent<UIManager>();
+            GameplaySystem = gameObject.AddComponent<GameplaySystem>();
 
             _systems.Add(SongManager);
             _systems.Add(AudioManager);
             _systems.Add(InputManager);
             _systems.Add(UIManager);
+            _systems.Add(GameplaySystem);
 
             foreach (var system in _systems) {
                 system.Initialize();
