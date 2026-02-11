@@ -75,7 +75,8 @@ namespace RiqMenu.Songs
                 _songList[i] = new CustomSong {
                     riq = _fileNames[i],
                     SongTitle = metadata.title ?? Path.GetFileNameWithoutExtension(_fileNames[i]),
-                    Creator = metadata.author,
+                    Artist = metadata.artist,
+                    Creator = metadata.mapper,
                     Bpm = metadata.bpm,
                     DownloadCount = metadata.downloadCount,
                     Difficulty = metadata.difficulty
@@ -83,9 +84,10 @@ namespace RiqMenu.Songs
             }
         }
 
-        private (string title, string author, float? bpm, int? downloadCount, string difficulty) ExtractMetadata(string filePath) {
+        private (string title, string artist, string mapper, float? bpm, int? downloadCount, string difficulty) ExtractMetadata(string filePath) {
             string title = null;
-            string author = null;
+            string artist = null;
+            string mapper = null;
             float? bpm = null;
             int? downloadCount = null;
             string difficulty = null;
@@ -96,13 +98,13 @@ namespace RiqMenu.Songs
                 try {
                     string json = File.ReadAllText(metaPath, Encoding.UTF8);
                     title = ParseJsonField(json, "title");
-                    // Try creator first (uploader), then artist (original artist)
-                    author = ParseJsonField(json, "creator") ?? ParseJsonField(json, "uploaderName") ?? ParseJsonField(json, "artist");
+                    artist = ParseJsonField(json, "artist");
+                    mapper = ParseJsonField(json, "creator") ?? ParseJsonField(json, "uploaderName");
                     bpm = ParseJsonFloat(json, "bpm");
                     downloadCount = ParseJsonInt(json, "downloadCount");
                     difficulty = ParseJsonField(json, "difficulty");
-                    if (!string.IsNullOrEmpty(title) || !string.IsNullOrEmpty(author)) {
-                        return (title, author, bpm, downloadCount, difficulty);
+                    if (!string.IsNullOrEmpty(title) || !string.IsNullOrEmpty(artist) || !string.IsNullOrEmpty(mapper)) {
+                        return (title, artist, mapper, bpm, downloadCount, difficulty);
                     }
                 }
                 catch (Exception ex) {
@@ -114,26 +116,26 @@ namespace RiqMenu.Songs
             try {
                 using (var fs = File.Open(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
                 using (var zip = new ZipArchive(fs, ZipArchiveMode.Read)) {
-                    // Try to find metadata in data.json (common .riq format)
                     var dataEntry = zip.GetEntry("data.json");
                     if (dataEntry != null) {
                         using (var stream = dataEntry.Open())
                         using (var reader = new StreamReader(stream, Encoding.UTF8)) {
                             string json = reader.ReadToEnd();
                             title = ParseJsonField(json, "title");
-                            author = ParseJsonField(json, "author") ?? ParseJsonField(json, "remixer");
+                            artist = ParseJsonField(json, "artist");
+                            mapper = ParseJsonField(json, "author") ?? ParseJsonField(json, "remixer");
                         }
                     }
 
-                    // If no author found, try level.json
-                    if (string.IsNullOrEmpty(author)) {
+                    if (string.IsNullOrEmpty(mapper)) {
                         var levelEntry = zip.GetEntry("level.json");
                         if (levelEntry != null) {
                             using (var stream = levelEntry.Open())
                             using (var reader = new StreamReader(stream, Encoding.UTF8)) {
                                 string json = reader.ReadToEnd();
                                 if (string.IsNullOrEmpty(title)) title = ParseJsonField(json, "title");
-                                author = ParseJsonField(json, "author") ?? ParseJsonField(json, "remixer");
+                                if (string.IsNullOrEmpty(artist)) artist = ParseJsonField(json, "artist");
+                                mapper = ParseJsonField(json, "author") ?? ParseJsonField(json, "remixer");
                             }
                         }
                     }
@@ -143,17 +145,50 @@ namespace RiqMenu.Songs
                 Debug.LogWarning($"[SongManager] Failed to extract metadata from {Path.GetFileName(filePath)}: {ex.Message}");
             }
 
-            return (title, author, bpm, downloadCount, difficulty);
+            return (title, artist, mapper, bpm, downloadCount, difficulty);
         }
 
         private string ParseJsonField(string json, string fieldName) {
-            // Simple regex-based JSON field extraction (avoids dependency on JSON library)
-            var pattern = $"\"{fieldName}\"\\s*:\\s*\"([^\"]+)\"";
+            var pattern = $"\"{fieldName}\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"";
             var match = Regex.Match(json, pattern, RegexOptions.IgnoreCase);
             if (match.Success && match.Groups.Count > 1) {
-                return match.Groups[1].Value;
+                return UnescapeJsonString(match.Groups[1].Value);
             }
             return null;
+        }
+
+        private string UnescapeJsonString(string s) {
+            if (string.IsNullOrEmpty(s) || !s.Contains("\\")) return s;
+            var sb = new StringBuilder(s.Length);
+            for (int i = 0; i < s.Length; i++) {
+                if (s[i] == '\\' && i + 1 < s.Length) {
+                    char next = s[i + 1];
+                    switch (next) {
+                        case '"': sb.Append('"'); i++; break;
+                        case '\\': sb.Append('\\'); i++; break;
+                        case '/': sb.Append('/'); i++; break;
+                        case 'n': sb.Append('\n'); i++; break;
+                        case 'r': sb.Append('\r'); i++; break;
+                        case 't': sb.Append('\t'); i++; break;
+                        case 'u':
+                            if (i + 5 < s.Length) {
+                                string hex = s.Substring(i + 2, 4);
+                                if (int.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out int codePoint)) {
+                                    sb.Append((char)codePoint);
+                                    i += 5;
+                                    break;
+                                }
+                            }
+                            sb.Append(s[i]);
+                            break;
+                        default: sb.Append(s[i]); break;
+                    }
+                }
+                else {
+                    sb.Append(s[i]);
+                }
+            }
+            return sb.ToString();
         }
 
         private float? ParseJsonFloat(string json, string fieldName) {
@@ -217,13 +252,12 @@ namespace RiqMenu.Songs
         /// <summary>
         /// Save metadata for a song to a .meta.json file
         /// </summary>
-        public bool SaveMetadata(CustomSong song, string title, string creator, float? bpm, string difficulty) {
+        public bool SaveMetadata(CustomSong song, string title, string artist, string creator, float? bpm, string difficulty) {
             if (song == null || string.IsNullOrEmpty(song.riq)) return false;
 
             try {
                 string metaPath = song.riq + ".meta.json";
 
-                // Build JSON manually to avoid dependencies
                 var sb = new StringBuilder();
                 sb.AppendLine("{");
 
@@ -241,6 +275,7 @@ namespace RiqMenu.Songs
                 }
 
                 AddField("title", title);
+                AddField("artist", artist);
                 AddField("creator", creator);
                 if (bpm.HasValue) AddNumericField("bpm", bpm.Value);
                 AddField("difficulty", difficulty);
@@ -251,8 +286,8 @@ namespace RiqMenu.Songs
                 File.WriteAllText(metaPath, sb.ToString(), Encoding.UTF8);
                 Debug.Log($"[SongManager] Saved metadata to {metaPath}");
 
-                // Update the song object in memory
                 song.SongTitle = title ?? song.SongTitle;
+                song.Artist = artist ?? song.Artist;
                 song.Creator = creator ?? song.Creator;
                 song.Bpm = bpm ?? song.Bpm;
                 song.Difficulty = difficulty ?? song.Difficulty;

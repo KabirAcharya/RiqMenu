@@ -5,6 +5,7 @@ namespace RiqMenu {
         public string Type;
         public string SongTitle;
         public string Title;
+        public string Artist;
         public string Creator;
         public string riq;
         public AudioClip audioClip;
