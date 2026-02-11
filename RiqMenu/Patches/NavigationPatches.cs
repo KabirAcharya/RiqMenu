@@ -17,6 +17,9 @@ namespace RiqMenu.Patches
                 if (__instance.PreventQuit)
                     return;
 
+                // Prevents judge patches from running during scene teardown
+                RiqMenuState.IsTransitioning = true;
+
                 Debug.Log($"[RiqMenu] Quitter.Quit called: quitScene={quitScene}, LaunchedFromRiqMenu={RiqMenuState.LaunchedFromRiqMenu}");
 
                 if (quitScene.HasValue && quitScene.Value == SceneKey.RiqLoader)
@@ -24,7 +27,8 @@ namespace RiqMenu.Patches
 
                 if (quitScene.HasValue &&
                     (quitScene.Value == SceneKey.StageSelect || quitScene.Value == SceneKey.TitleScreen)) {
-                    GameplaySystem.Instance?.HideGameplayUI();
+                    var gameplay = GameplaySystem.Instance;
+                    if (gameplay != null) gameplay.HideGameplayUI();
                 }
 
                 if (RiqMenuState.LaunchedFromRiqMenu && quitScene.HasValue && quitScene.Value == SceneKey.StageSelect) {
@@ -37,6 +41,8 @@ namespace RiqMenu.Patches
         [HarmonyPatch(typeof(TempoSceneManager), "LoadSceneAsync", new Type[] { typeof(SceneKey), typeof(float) })]
         private static class TempoSceneManagerLoadSceneAsyncPatch {
             private static void Prefix(ref SceneKey scene) {
+                RiqMenuState.IsTransitioning = true;
+
                 Debug.Log($"[RiqMenu] LoadSceneAsync called: scene={scene}, LaunchedFromRiqMenu={RiqMenuState.LaunchedFromRiqMenu}");
 
                 if (scene == SceneKey.RiqLoader)

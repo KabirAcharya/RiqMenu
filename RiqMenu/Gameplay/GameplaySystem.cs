@@ -57,8 +57,8 @@ namespace RiqMenu.Gameplay
         }
 
         public void HideGameplayUI() {
-            _accuracyBar?.Hide();
-            _progressBar?.Hide();
+            if (_accuracyBar != null) _accuracyBar.Hide();
+            if (_progressBar != null) _progressBar.Hide();
         }
 
         // JukeboxScript.Play postfix logic
@@ -89,13 +89,12 @@ namespace RiqMenu.Gameplay
 
             if (RiqMenuSettings.AccuracyBarEnabled) {
                 InitializeAccuracyBar();
-                _accuracyBar?.Show();
-                _accuracyBar?.ClearIndicators();
+                if (_accuracyBar != null) { _accuracyBar.Show(); _accuracyBar.ClearIndicators(); }
             }
 
             if (RiqMenuSettings.ProgressBarEnabled) {
                 InitializeProgressBar();
-                _progressBar?.Show();
+                if (_progressBar != null) _progressBar.Show();
             }
         }
 
@@ -117,8 +116,8 @@ namespace RiqMenu.Gameplay
             while (_pendingHits.TryDequeue(out discard)) { }
             _pendingAutoRestartJudgement = NO_PENDING_JUDGEMENT;
 
+            HideGameplayUI();
             if (RiqMenuState.IsMenuScene(scene.name)) {
-                HideGameplayUI();
                 StopGameMusic();
             }
         }
@@ -137,7 +136,7 @@ namespace RiqMenu.Gameplay
                 PendingHitEvent hitEvent;
                 while (_pendingHits.TryDequeue(out hitEvent)) {
                     if (RiqMenuState.IsTransitioning || !_gameplayReady) continue;
-                    _accuracyBar?.RegisterHit(hitEvent.delta, hitEvent.judgement);
+                    if (_accuracyBar != null) _accuracyBar.RegisterHit(hitEvent.delta, hitEvent.judgement);
                 }
 
                 Judgement restartJudgement = _pendingAutoRestartJudgement;
@@ -214,7 +213,7 @@ namespace RiqMenu.Gameplay
                     return;
                 }
 
-                _accuracyBar?.Hide();
+                if (_accuracyBar != null) _accuracyBar.Hide();
 
                 SceneKey restartScene = sceneKey;
                 if (sceneKey == SceneKey.MixtapeCustom) {
@@ -255,10 +254,14 @@ namespace RiqMenu.Gameplay
 
         private static void StopGameMusic() {
             try {
-                var jukebox = FindObjectOfType<JukeboxScript>();
-                if (jukebox != null && jukebox.IsPlaying) {
-                    jukebox.Stop();
-                    Debug.Log("[RiqMenu] Stopped game music on scene transition");
+                // IsPlaying can return false with invalid sound IDs, so just stop everything
+                var jukeboxes = FindObjectsOfType<JukeboxScript>();
+                foreach (var jukebox in jukeboxes) {
+                    if (jukebox == null) continue;
+                    try { jukebox.Stop(); } catch { }
+                }
+                if (jukeboxes.Length > 0) {
+                    Debug.Log($"[RiqMenu] Stopped {jukeboxes.Length} jukebox(es) on menu transition");
                 }
             } catch (Exception ex) {
                 Debug.LogWarning($"[RiqMenu] Failed to stop game music: {ex.Message}");

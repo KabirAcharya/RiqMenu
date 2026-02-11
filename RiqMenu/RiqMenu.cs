@@ -112,8 +112,10 @@ namespace RiqMenu
                 StopPreview();
 
                 // Let gameplay system handle its own reset
-                var gameplay = RiqMenuSystemManager.Instance?.GameplaySystem;
-                gameplay?.OnSceneChanged(scene);
+                var sm = RiqMenuSystemManager.Instance;
+                if (sm != null && sm.GameplaySystem != null) {
+                    sm.GameplaySystem.OnSceneChanged(scene);
+                }
             }
 
             if (scene.name == SceneKey.TitleScreen.ToString()) {

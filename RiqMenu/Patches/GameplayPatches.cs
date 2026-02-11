@@ -92,14 +92,16 @@ namespace RiqMenu.Patches
         [HarmonyPatch(typeof(JukeboxScript), "Play")]
         private static class JukeboxScriptPlayPatch {
             private static void Postfix() {
-                GameplaySystem.Instance?.OnSongStarted();
+                var gameplay = GameplaySystem.Instance;
+                if (gameplay != null) gameplay.OnSongStarted();
             }
         }
 
         [HarmonyPatch(typeof(JudgementScript), "Play")]
         private static class JudgementScriptPlayPatch {
             private static void Prefix() {
-                GameplaySystem.Instance?.OnOutroStarted();
+                var gameplay = GameplaySystem.Instance;
+                if (gameplay != null) gameplay.OnOutroStarted();
             }
         }
     }
