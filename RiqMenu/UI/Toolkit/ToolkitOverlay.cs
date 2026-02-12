@@ -6,6 +6,7 @@ using UnityEngine;
 using UnityEngine.UIElements;
 using UnityEngine.TextCore.Text;
 using RiqMenu.Core;
+using RiqMenu.Input;
 using RiqMenu.Online;
 
 namespace RiqMenu.UI.Toolkit {
@@ -58,8 +59,91 @@ namespace RiqMenu.UI.Toolkit {
         private string _localSearchQuery = "";
         private Label _audioStatusLabel;
         private Label _autoplayLabel;
+        private Label _tabsHintLabel;
+        private Label _settingsHintLabel;
+        private Label _editorHintLabel;
+        private VisualElement _footerHintsContainer;
+        private VisualElement _touchActionBar;
+        private Dictionary<RiqInputAction, System.Action> _touchActionHandlers;
+        private RiqInputManager _inputManager;
+        private RiqInputMethod _activeInputMethod = RiqInputMethod.KeyboardMouse;
         private const int GRID_COLUMNS = 4;
         private const int PAGE_SIZE = 20;
+
+        private enum FooterKeyBindingType {
+            Action,
+            CombinedActions
+        }
+
+        private readonly struct FooterHintEntry(
+            FooterKeyBindingType keyBindingType,
+            string label,
+            RiqInputAction primaryAction = default,
+            RiqInputAction secondaryAction = default) {
+            public FooterKeyBindingType KeyBindingType { get; } = keyBindingType;
+            public string Label { get; } = label;
+            public RiqInputAction PrimaryAction { get; } = primaryAction;
+            public RiqInputAction SecondaryAction { get; } = secondaryAction;
+
+            public static FooterHintEntry Action(RiqInputAction action, string label) {
+                return new FooterHintEntry(FooterKeyBindingType.Action, label, primaryAction: action);
+            }
+
+            public static FooterHintEntry Combined(RiqInputAction firstAction, RiqInputAction secondAction, string label) {
+                return new FooterHintEntry(FooterKeyBindingType.CombinedActions, label, primaryAction: firstAction, secondaryAction: secondAction);
+            }
+        }
+
+        private static readonly Dictionary<OverlayTab, FooterHintEntry[][]> FooterHintRowsByTab = new() {
+            [OverlayTab.Local] = [
+                [
+                    FooterHintEntry.Action(RiqInputAction.Submit, "Play"),
+                    FooterHintEntry.Action(RiqInputAction.NavigateUp, "Navigate"),
+                    FooterHintEntry.Combined(RiqInputAction.PreviousTab, RiqInputAction.NextTab, "Switch Tab"),
+                    FooterHintEntry.Action(RiqInputAction.Search, "Search")
+                ],
+                [
+                    FooterHintEntry.Action(RiqInputAction.Edit, "Edit"),
+                    FooterHintEntry.Action(RiqInputAction.ToggleAutoplay, "Auto-Play"),
+                    FooterHintEntry.Action(RiqInputAction.ToggleMute, "Mute"),
+                    FooterHintEntry.Action(RiqInputAction.Cancel, "Exit")
+                ]
+            ],
+            [OverlayTab.Online] = [
+                [
+                    FooterHintEntry.Action(RiqInputAction.Submit, "Download"),
+                    FooterHintEntry.Action(RiqInputAction.NavigateUp, "Navigate"),
+                    FooterHintEntry.Combined(RiqInputAction.PreviousTab, RiqInputAction.NextTab, "Switch Tab"),
+                    FooterHintEntry.Action(RiqInputAction.Search, "Search"),
+                    FooterHintEntry.Action(RiqInputAction.Cancel, "Exit")
+                ]
+            ],
+            [OverlayTab.Settings] = [
+                [
+                    FooterHintEntry.Action(RiqInputAction.Submit, "Toggle"),
+                    FooterHintEntry.Action(RiqInputAction.NavigateUp, "Navigate"),
+                    FooterHintEntry.Combined(RiqInputAction.PreviousTab, RiqInputAction.NextTab, "Switch Tab"),
+                    FooterHintEntry.Action(RiqInputAction.Cancel, "Exit")
+                ]
+            ]
+        };
+
+        private static readonly Dictionary<OverlayTab, FooterHintEntry[]> TouchActionEntriesByTab = new() {
+            [OverlayTab.Local] = [
+                FooterHintEntry.Action(RiqInputAction.Submit, "Play"),
+                FooterHintEntry.Action(RiqInputAction.Edit, "Edit"),
+                FooterHintEntry.Action(RiqInputAction.ToggleAutoplay, "Autoplay"),
+                FooterHintEntry.Action(RiqInputAction.ToggleMute, "Mute"),
+                FooterHintEntry.Action(RiqInputAction.Cancel, "Exit")
+            ],
+            [OverlayTab.Online] = [
+                FooterHintEntry.Action(RiqInputAction.Submit, "Download"),
+                FooterHintEntry.Action(RiqInputAction.Cancel, "Exit")
+            ],
+            [OverlayTab.Settings] = [
+                FooterHintEntry.Action(RiqInputAction.Cancel, "Exit")
+            ]
+        };
 
         // Online songs
         private ScrollView _onlineSongList;
@@ -127,7 +211,20 @@ namespace RiqMenu.UI.Toolkit {
         private CustomSong _editingSong;
 
         private void Awake() {
+            InitializeTouchActionHandlers();
             CreateUIDocument();
+            TryConnectInputManager();
+        }
+
+        private void InitializeTouchActionHandlers() {
+            _touchActionHandlers = new Dictionary<RiqInputAction, System.Action> {
+                [RiqInputAction.Submit] = ExecuteCurrentTabPrimaryAction,
+                [RiqInputAction.Edit] = OpenEditor,
+                [RiqInputAction.Search] = EnterSearchMode,
+                [RiqInputAction.ToggleAutoplay] = ToggleAutoplay,
+                [RiqInputAction.ToggleMute] = ToggleMute,
+                [RiqInputAction.Cancel] = Hide
+            };
         }
 
         private AssetBundle _themeBundle;
@@ -190,6 +287,11 @@ namespace RiqMenu.UI.Toolkit {
         }
 
         private void OnDestroy() {
+            if (_inputManager != null) {
+                _inputManager.OnInputMethodChanged -= HandleInputMethodChanged;
+                _inputManager = null;
+            }
+
             if (_themeBundle != null) {
                 _themeBundle.Unload(true);
                 _themeBundle = null;
@@ -441,7 +543,8 @@ namespace RiqMenu.UI.Toolkit {
             modalCard.Add(buttonRow);
 
             // Hint
-            var hint = new Label("Press Escape to cancel, Enter to save");
+            _editorHintLabel = new Label("Press Escape to cancel, Enter to save");
+            var hint = _editorHintLabel;
             hint.style.fontSize = 11;
             hint.style.color = ParseColor(RiqMenuStyles.Gray);
             hint.style.marginTop = 12;
@@ -608,7 +711,8 @@ namespace RiqMenu.UI.Toolkit {
             container.Add(spacer);
 
             // Hint with icon style
-            var hint = new Label("Q / E to switch tabs");
+            _tabsHintLabel = new Label("Q / E to switch tabs");
+            var hint = _tabsHintLabel;
             hint.style.unityTextAlign = TextAnchor.MiddleRight;
             hint.style.fontSize = 12;
             hint.style.color = ParseColor(RiqMenuStyles.GrayLight);
@@ -980,11 +1084,25 @@ namespace RiqMenu.UI.Toolkit {
             _settingsRows.Add(progressBarRow);
             container.Add(progressBarRow);
 
+            _accuracyBarToggle.clicked += () => {
+                _selectedSettingIndex = 0;
+                UpdateSettingsSelection();
+            };
+            _autoRestartToggle.clicked += () => {
+                _selectedSettingIndex = 1;
+                UpdateSettingsSelection();
+            };
+            _progressBarToggle.clicked += () => {
+                _selectedSettingIndex = 2;
+                UpdateSettingsSelection();
+            };
+
             // Update selection highlight
             UpdateSettingsSelection();
 
             // Hint text
-            var hintText = new Label("Use Up/Down to navigate, Enter to toggle");
+            _settingsHintLabel = new Label("Use Up/Down to navigate, Enter to toggle");
+            var hintText = _settingsHintLabel;
             hintText.style.fontSize = 12;
             hintText.style.color = ParseColor(RiqMenuStyles.GrayLight);
             hintText.style.marginTop = 8;
@@ -1273,30 +1391,33 @@ namespace RiqMenu.UI.Toolkit {
             footer.style.borderTopWidth = 3;
             footer.style.borderTopColor = ParseColor(RiqMenuStyles.GrayLighter);
 
-            var row1Keys = new string[] { "Enter", "WASD", "Q/E", "Tab" };
-            var row1Actions = new string[] { "Play", "Navigate", "Switch Tab", "Search" };
+            _footerHintsContainer = new VisualElement();
+            _footerHintsContainer.style.flexDirection = FlexDirection.Column;
+            _footerHintsContainer.style.alignItems = Align.Center;
+            footer.Add(_footerHintsContainer);
 
-            var row2Keys = new string[] { "R", "P", "M", "Esc" };
-            var row2Actions = new string[] { "Edit", "Auto-Play", "Mute", "Exit" };
+            _touchActionBar = new VisualElement();
+            _touchActionBar.style.flexDirection = FlexDirection.Row;
+            _touchActionBar.style.flexWrap = Wrap.Wrap;
+            _touchActionBar.style.justifyContent = Justify.Center;
+            _touchActionBar.style.alignItems = Align.Center;
+            _touchActionBar.style.marginTop = 8;
+            footer.Add(_touchActionBar);
 
-            var row1 = CreateHelpRow(row1Keys, row1Actions);
-            row1.style.marginBottom = 8;
-            footer.Add(row1);
-
-            var row2 = CreateHelpRow(row2Keys, row2Actions);
-            footer.Add(row2);
+            UpdateFooterHints();
 
             return footer;
         }
 
-        private VisualElement CreateHelpRow(string[] keys, string[] actions) {
+        private VisualElement CreateHelpRow(FooterHintEntry[] entries) {
             var row = new VisualElement();
             row.style.flexDirection = FlexDirection.Row;
             row.style.alignItems = Align.Center;
             row.style.justifyContent = Justify.Center;
 
-            for (int i = 0; i < keys.Length; i++) {
-                var keyLabel = new Label(keys[i]);
+            foreach (var entry in entries)
+            {
+                var keyLabel = new Label(GetFooterKeyLabel(entry));
                 keyLabel.style.paddingLeft = 10;
                 keyLabel.style.paddingRight = 10;
                 keyLabel.style.paddingTop = 5;
@@ -1319,7 +1440,7 @@ namespace RiqMenu.UI.Toolkit {
                 keyLabel.style.color = ParseColor(RiqMenuStyles.Charcoal);
                 row.Add(keyLabel);
 
-                var actionLabel = new Label(actions[i]);
+                var actionLabel = new Label(entry.Label);
                 actionLabel.style.fontSize = 12;
                 actionLabel.style.color = ParseColor(RiqMenuStyles.Gray);
                 actionLabel.style.marginLeft = 8;
@@ -1328,6 +1449,170 @@ namespace RiqMenu.UI.Toolkit {
             }
 
             return row;
+        }
+
+        private void TryConnectInputManager() {
+            if (_inputManager) return;
+
+            _inputManager = RiqMenuSystemManager.Instance?.InputManager;
+            if (!_inputManager) return;
+
+            _activeInputMethod = _inputManager.CurrentInputMethod;
+            _inputManager.OnInputMethodChanged += HandleInputMethodChanged;
+            UpdateFooterHints();
+            UpdateContextHintLabels();
+            UpdateAutoplayLabel();
+            UpdateSearchFieldTouchAccessibility();
+            UpdateSettingsSelection();
+        }
+
+        private void HandleInputMethodChanged(RiqInputMethod inputMethod) {
+            _activeInputMethod = inputMethod;
+            UpdateFooterHints();
+            UpdateContextHintLabels();
+            UpdateAutoplayLabel();
+            UpdateSearchFieldTouchAccessibility();
+            UpdateSettingsSelection();
+        }
+
+        private void UpdateFooterHints() {
+            if (_footerHintsContainer == null) return;
+
+            _footerHintsContainer.Clear();
+            if (_activeInputMethod == RiqInputMethod.Touch) {
+                UpdateTouchActionBar();
+                return;
+            }
+
+            if (!FooterHintRowsByTab.TryGetValue(_currentTab, out var rows)) return;
+
+            for (int i = 0; i < rows.Length; i++) {
+                var row = CreateHelpRow(rows[i]);
+                if (i < rows.Length - 1) {
+                    row.style.marginBottom = 8;
+                }
+
+                _footerHintsContainer.Add(row);
+            }
+
+            UpdateTouchActionBar();
+        }
+
+        private void UpdateTouchActionBar() {
+            if (_touchActionBar == null) return;
+
+            _touchActionBar.Clear();
+            bool isTouch = _activeInputMethod == RiqInputMethod.Touch;
+            _touchActionBar.style.display = isTouch ? DisplayStyle.Flex : DisplayStyle.None;
+            if (!isTouch) return;
+
+            if (!TouchActionEntriesByTab.TryGetValue(_currentTab, out var entries)) return;
+            for (int i = 0; i < entries.Length; i++) {
+                var entry = entries[i];
+                if (entry.KeyBindingType != FooterKeyBindingType.Action) continue;
+                _touchActionBar.Add(CreateTouchActionButton(entry.Label, () => ExecuteTouchAction(entry.PrimaryAction)));
+            }
+        }
+
+        private Button CreateTouchActionButton(string text, System.Action onClick) {
+            var button = new Button(() => onClick?.Invoke()) { text = text };
+            button.focusable = false;
+            button.style.marginLeft = 8;
+            button.style.marginRight = 8;
+            button.style.marginTop = 6;
+            button.style.marginBottom = 6;
+            button.style.paddingLeft = 18;
+            button.style.paddingRight = 18;
+            button.style.paddingTop = 10;
+            button.style.paddingBottom = 10;
+            button.style.minHeight = 44;
+            button.style.fontSize = 14;
+            button.style.unityFontStyleAndWeight = FontStyle.Bold;
+            button.style.color = ParseColor(RiqMenuStyles.Charcoal);
+            button.style.backgroundColor = ParseColor(RiqMenuStyles.GrayLighter);
+            button.style.borderTopLeftRadius = 10;
+            button.style.borderTopRightRadius = 10;
+            button.style.borderBottomLeftRadius = 10;
+            button.style.borderBottomRightRadius = 10;
+            button.style.borderTopWidth = 2;
+            button.style.borderBottomWidth = 2;
+            button.style.borderLeftWidth = 2;
+            button.style.borderRightWidth = 2;
+            button.style.borderTopColor = ParseColor(RiqMenuStyles.GrayLight);
+            button.style.borderBottomColor = ParseColor(RiqMenuStyles.GrayLight);
+            button.style.borderLeftColor = ParseColor(RiqMenuStyles.GrayLight);
+            button.style.borderRightColor = ParseColor(RiqMenuStyles.GrayLight);
+            return button;
+        }
+
+        private void ExecuteTouchAction(RiqInputAction action) {
+            if (_touchActionHandlers != null && _touchActionHandlers.TryGetValue(action, out var handler)) {
+                handler.Invoke();
+            }
+        }
+
+        private void UpdateContextHintLabels() {
+            if (_tabsHintLabel != null) {
+                _tabsHintLabel.text = $"{BuildCombinedBindingLabel(RiqInputAction.PreviousTab, RiqInputAction.NextTab)} to switch tabs";
+            }
+
+            if (_settingsHintLabel != null) {
+                _settingsHintLabel.text = _activeInputMethod == RiqInputMethod.Touch
+                    ? "Tap to toggle"
+                    : $"Use {ResolveBindingLabel(RiqInputAction.NavigateUp)} to navigate, {ResolveBindingLabel(RiqInputAction.Submit)} to toggle";
+            }
+
+            if (_editorHintLabel != null) {
+                _editorHintLabel.text = $"Press {ResolveBindingLabel(RiqInputAction.Cancel)} to cancel, {ResolveBindingLabel(RiqInputAction.Submit)} to save";
+            }
+        }
+
+        private string GetFooterKeyLabel(FooterHintEntry entry) {
+            switch (entry.KeyBindingType) {
+                case FooterKeyBindingType.Action:
+                    return ResolveBindingLabel(entry.PrimaryAction);
+                case FooterKeyBindingType.CombinedActions:
+                    return BuildCombinedBindingLabel(entry.PrimaryAction, entry.SecondaryAction);
+                default:
+                    return string.Empty;
+            }
+        }
+
+        private string BuildCombinedBindingLabel(RiqInputAction leftAction, RiqInputAction rightAction) {
+            string left = ResolveBindingLabel(leftAction);
+            string right = ResolveBindingLabel(rightAction);
+            if (string.IsNullOrEmpty(left)) return right;
+            if (string.IsNullOrEmpty(right) || left == right) return left;
+            return $"{left} / {right}";
+        }
+
+        private string ResolveBindingLabel(RiqInputAction action) {
+            if (_inputManager) {
+                return _inputManager.GetBindingLabel(action, _activeInputMethod);
+            }
+
+            switch (action) {
+                case RiqInputAction.Submit:
+                    return "Enter";
+                case RiqInputAction.NavigateUp:
+                    return "WASD";
+                case RiqInputAction.Search:
+                    return "Tab";
+                case RiqInputAction.Edit:
+                    return "R";
+                case RiqInputAction.ToggleAutoplay:
+                    return "P";
+                case RiqInputAction.ToggleMute:
+                    return "M";
+                case RiqInputAction.Cancel:
+                    return "Esc";
+                case RiqInputAction.PreviousTab:
+                    return "Q";
+                case RiqInputAction.NextTab:
+                    return "E";
+                default:
+                    return string.Empty;
+            }
         }
 
         private VisualElement CreateSongItem(string title, string artist, string mapper, string fileType, int? bpm, int? downloads, bool selected, bool isDownloaded = false) {
@@ -1539,6 +1824,7 @@ namespace RiqMenu.UI.Toolkit {
             _localContent.style.display = tab == OverlayTab.Local ? DisplayStyle.Flex : DisplayStyle.None;
             _onlineContent.style.display = tab == OverlayTab.Online ? DisplayStyle.Flex : DisplayStyle.None;
             _settingsContent.style.display = tab == OverlayTab.Settings ? DisplayStyle.Flex : DisplayStyle.None;
+            UpdateFooterHints();
 
             if (tab == OverlayTab.Online) {
                 if (_onlineSongs.Count == 0) {
@@ -1636,7 +1922,13 @@ namespace RiqMenu.UI.Toolkit {
                 );
 
                 int index = i;
-                item.RegisterCallback<ClickEvent>(evt => SelectOnlineSong(index));
+                item.RegisterCallback<ClickEvent>(evt => {
+                    bool wasSelected = index == _selectedOnlineIndex;
+                    SelectOnlineSong(index);
+                    if (_activeInputMethod == RiqInputMethod.Touch && wasSelected) {
+                        ExecuteCurrentTabPrimaryAction();
+                    }
+                });
 
                 _onlineGridWrapper.Add(item);
                 _onlineSongElements.Add(item);
@@ -1702,7 +1994,13 @@ namespace RiqMenu.UI.Toolkit {
                 );
 
                 int index = displayIndex;
-                item.RegisterCallback<ClickEvent>(evt => SelectLocalSong(index));
+                item.RegisterCallback<ClickEvent>(evt => {
+                    bool wasSelected = index == _selectedLocalIndex;
+                    SelectLocalSong(index);
+                    if (_activeInputMethod == RiqInputMethod.Touch && wasSelected) {
+                        ExecuteCurrentTabPrimaryAction();
+                    }
+                });
 
                 _localGridWrapper.Add(item);
                 _localSongElements.Add(item);
@@ -1876,6 +2174,7 @@ namespace RiqMenu.UI.Toolkit {
 
         private void Update() {
             if (!_isVisible) return;
+            TryConnectInputManager();
 
             // Process pending UI updates from background threads
             if (_pendingOnlineError != null) {
@@ -1961,6 +2260,8 @@ namespace RiqMenu.UI.Toolkit {
         }
 
         private void HandleInput() {
+            var inputManager = _inputManager ?? RiqMenuSystemManager.Instance?.InputManager;
+
             // Skip input for one frame after editor closes to prevent Enter from playing song
             if (_editorJustClosed) {
                 _editorJustClosed = false;
@@ -1969,10 +2270,16 @@ namespace RiqMenu.UI.Toolkit {
 
             // Handle editor modal input separately
             if (_isEditorOpen) {
-                if (UnityEngine.Input.GetKeyDown(KeyCode.Escape)) {
+                bool cancelPressed = inputManager?.IsActionDown(RiqInputAction.Cancel, ignoreBlocking: true) ??
+                                     UnityEngine.Input.GetKeyDown(KeyCode.Escape);
+                bool submitPressed = inputManager?.GetMenuSubmitDown(ignoreBlocking: true, allowSpace: false) ??
+                                     (UnityEngine.Input.GetKeyDown(KeyCode.Return) ||
+                                      UnityEngine.Input.GetKeyDown(KeyCode.KeypadEnter));
+
+                if (cancelPressed) {
                     CloseEditor(false);
                 }
-                else if (UnityEngine.Input.GetKeyDown(KeyCode.Return) || UnityEngine.Input.GetKeyDown(KeyCode.KeypadEnter)) {
+                else if (submitPressed) {
                     CloseEditor(true);
                 }
                 return; // Don't process other input while editor is open
@@ -1985,7 +2292,8 @@ namespace RiqMenu.UI.Toolkit {
             }
 
             // Escape always works - exits search mode or closes overlay
-            if (UnityEngine.Input.GetKeyDown(KeyCode.Escape)) {
+            if (inputManager?.IsActionDown(RiqInputAction.Cancel, ignoreBlocking: true) ??
+                UnityEngine.Input.GetKeyDown(KeyCode.Escape)) {
                 if (_isSearchMode) {
                     ExitSearchMode();
                     return;
@@ -1997,28 +2305,36 @@ namespace RiqMenu.UI.Toolkit {
             // If in search mode, only allow Escape, Enter, or Tab to exit
             if (_isSearchMode) {
                 // Enter or Tab while searching exits search mode and keeps results
-                if (UnityEngine.Input.GetKeyDown(KeyCode.Return) ||
-                    UnityEngine.Input.GetKeyDown(KeyCode.KeypadEnter) ||
-                    UnityEngine.Input.GetKeyDown(KeyCode.Tab)) {
+                bool submitPressed = inputManager?.GetMenuSubmitDown(ignoreBlocking: true, allowSpace: false) ??
+                                     (UnityEngine.Input.GetKeyDown(KeyCode.Return) ||
+                                      UnityEngine.Input.GetKeyDown(KeyCode.KeypadEnter));
+                bool searchPressed = inputManager?.IsActionDown(RiqInputAction.Search, ignoreBlocking: true) ??
+                                     UnityEngine.Input.GetKeyDown(KeyCode.Tab);
+                if (submitPressed || searchPressed) {
                     ExitSearchMode();
                 }
                 return; // Skip all other input while typing
             }
 
             // Tab to enter search mode (only on Local and Online tabs)
-            if (UnityEngine.Input.GetKeyDown(KeyCode.Tab) && _currentTab != OverlayTab.Settings) {
+            if ((inputManager?.IsActionDown(RiqInputAction.Search, ignoreBlocking: true) ??
+                 UnityEngine.Input.GetKeyDown(KeyCode.Tab)) &&
+                _currentTab != OverlayTab.Settings) {
                 EnterSearchMode();
                 return;
             }
 
             // R to edit metadata (Local tab only)
-            if (UnityEngine.Input.GetKeyDown(KeyCode.R) && _currentTab == OverlayTab.Local) {
+            if ((inputManager?.IsActionDown(RiqInputAction.Edit, ignoreBlocking: true) ??
+                 UnityEngine.Input.GetKeyDown(KeyCode.R)) &&
+                _currentTab == OverlayTab.Local) {
                 OpenEditor();
                 return;
             }
 
             // Tab switching with Q/E
-            if (UnityEngine.Input.GetKeyDown(KeyCode.Q)) {
+            if (inputManager?.IsActionDown(RiqInputAction.PreviousTab, ignoreBlocking: true) ??
+                UnityEngine.Input.GetKeyDown(KeyCode.Q)) {
                 if (_currentTab == OverlayTab.Local)
                     SwitchTab(OverlayTab.Settings);
                 else if (_currentTab == OverlayTab.Online)
@@ -2027,7 +2343,9 @@ namespace RiqMenu.UI.Toolkit {
                     SwitchTab(OverlayTab.Online);
                 return;
             }
-            if (UnityEngine.Input.GetKeyDown(KeyCode.E)) {
+
+            if (inputManager?.IsActionDown(RiqInputAction.NextTab, ignoreBlocking: true) ??
+                UnityEngine.Input.GetKeyDown(KeyCode.E)) {
                 if (_currentTab == OverlayTab.Local)
                     SwitchTab(OverlayTab.Online);
                 else if (_currentTab == OverlayTab.Online)
@@ -2038,89 +2356,109 @@ namespace RiqMenu.UI.Toolkit {
             }
 
             // Autoplay toggle (P key) - only in Local tab
-            if (UnityEngine.Input.GetKeyDown(KeyCode.P) && _currentTab == OverlayTab.Local) {
-                MixtapeLoaderCustom.autoplay = !MixtapeLoaderCustom.autoplay;
-                UpdateAutoplayLabel();
+            if ((inputManager?.IsActionDown(RiqInputAction.ToggleAutoplay, ignoreBlocking: true) ??
+                 UnityEngine.Input.GetKeyDown(KeyCode.P)) &&
+                _currentTab == OverlayTab.Local) {
+                ToggleAutoplay();
             }
 
             // Mute toggle (M key)
-            if (UnityEngine.Input.GetKeyDown(KeyCode.M)) {
-                var audioManager = RiqMenuSystemManager.Instance?.AudioManager;
-                audioManager?.ToggleMute();
+            if (inputManager?.IsActionDown(RiqInputAction.ToggleMute, ignoreBlocking: true) ??
+                UnityEngine.Input.GetKeyDown(KeyCode.M)) {
+                ToggleMute();
             }
 
             // Grid navigation
-            if (UnityEngine.Input.GetKeyDown(KeyCode.UpArrow) || UnityEngine.Input.GetKeyDown(KeyCode.W)) {
-                if (_currentTab == OverlayTab.Local) {
+            var navDirection = inputManager?.ConsumeMenuNavigationDirection(ignoreBlocking: true) ??
+                               NavigationDirection.None;
+            switch (navDirection, _currentTab) {
+                case (NavigationDirection.Up, OverlayTab.Local): {
                     int newIndex = _selectedLocalIndex - GRID_COLUMNS;
                     if (newIndex >= 0) {
                         SelectLocalSong(newIndex);
                         ScrollToSelectedLocal();
                     }
+
+                    break;
                 }
-                else if (_currentTab == OverlayTab.Online) {
+                case (NavigationDirection.Up, OverlayTab.Online): {
                     int newIndex = _selectedOnlineIndex - GRID_COLUMNS;
                     if (newIndex >= 0) {
                         SelectOnlineSong(newIndex);
                         ScrollToSelectedOnline();
                     }
+
+                    break;
                 }
-                else if (_currentTab == OverlayTab.Settings) {
+                case (NavigationDirection.Up, OverlayTab.Settings): {
                     _selectedSettingIndex = Mathf.Max(0, _selectedSettingIndex - 1);
                     UpdateSettingsSelection();
+
+                    break;
                 }
-            }
-            else if (UnityEngine.Input.GetKeyDown(KeyCode.DownArrow) || UnityEngine.Input.GetKeyDown(KeyCode.S)) {
-                if (_currentTab == OverlayTab.Local) {
-                    int newIndex = _selectedLocalIndex + GRID_COLUMNS;
+                case (NavigationDirection.Down, OverlayTab.Local): {
+                    var newIndex = _selectedLocalIndex + GRID_COLUMNS;
                     if (newIndex < _localSongElements.Count) {
                         SelectLocalSong(newIndex);
-                    } else if (_selectedLocalIndex / GRID_COLUMNS < (_localSongElements.Count - 1) / GRID_COLUMNS) {
+                    }
+                    else if (_selectedLocalIndex / GRID_COLUMNS < (_localSongElements.Count - 1) / GRID_COLUMNS) {
                         SelectLocalSong(_localSongElements.Count - 1);
                     }
+
                     ScrollToSelectedLocal();
+                    break;
                 }
-                else if (_currentTab == OverlayTab.Online) {
-                    int newIndex = _selectedOnlineIndex + GRID_COLUMNS;
+                case (NavigationDirection.Down, OverlayTab.Online): {
+                    var newIndex = _selectedOnlineIndex + GRID_COLUMNS;
                     if (newIndex < _onlineSongElements.Count) {
                         SelectOnlineSong(newIndex);
-                    } else if (_selectedOnlineIndex / GRID_COLUMNS < (_onlineSongElements.Count - 1) / GRID_COLUMNS) {
+                    }
+                    else if (_selectedOnlineIndex / GRID_COLUMNS < (_onlineSongElements.Count - 1) / GRID_COLUMNS) {
                         SelectOnlineSong(_onlineSongElements.Count - 1);
                     }
+
                     ScrollToSelectedOnline();
 
                     if (_selectedOnlineIndex >= _onlineSongElements.Count - GRID_COLUMNS * 2) {
                         LoadMoreOnlineSongs();
                     }
+
+                    break;
                 }
-                else if (_currentTab == OverlayTab.Settings) {
+                case (NavigationDirection.Down, OverlayTab.Settings): {
                     _selectedSettingIndex = Mathf.Min(_settingsRows.Count - 1, _selectedSettingIndex + 1);
                     UpdateSettingsSelection();
+
+                    break;
                 }
-            }
-            else if (UnityEngine.Input.GetKeyDown(KeyCode.LeftArrow) || UnityEngine.Input.GetKeyDown(KeyCode.A)) {
-                if (_currentTab == OverlayTab.Local) {
+                case (NavigationDirection.Left, OverlayTab.Local): {
                     if (_selectedLocalIndex % GRID_COLUMNS > 0) {
                         SelectLocalSong(_selectedLocalIndex - 1);
                         ScrollToSelectedLocal();
                     }
+
+                    break;
                 }
-                else if (_currentTab == OverlayTab.Online) {
+                case (NavigationDirection.Left, OverlayTab.Online): {
                     if (_selectedOnlineIndex % GRID_COLUMNS > 0) {
                         SelectOnlineSong(_selectedOnlineIndex - 1);
                         ScrollToSelectedOnline();
                     }
+
+                    break;
                 }
-            }
-            else if (UnityEngine.Input.GetKeyDown(KeyCode.RightArrow) || UnityEngine.Input.GetKeyDown(KeyCode.D)) {
-                if (_currentTab == OverlayTab.Local) {
-                    if (_selectedLocalIndex % GRID_COLUMNS < GRID_COLUMNS - 1 && _selectedLocalIndex < _localSongElements.Count - 1) {
+                case (NavigationDirection.Right, OverlayTab.Local): {
+                    if (_selectedLocalIndex % GRID_COLUMNS < GRID_COLUMNS - 1 &&
+                        _selectedLocalIndex < _localSongElements.Count - 1) {
                         SelectLocalSong(_selectedLocalIndex + 1);
                         ScrollToSelectedLocal();
                     }
+
+                    break;
                 }
-                else if (_currentTab == OverlayTab.Online) {
-                    if (_selectedOnlineIndex % GRID_COLUMNS < GRID_COLUMNS - 1 && _selectedOnlineIndex < _onlineSongElements.Count - 1) {
+                case (NavigationDirection.Right, OverlayTab.Online): {
+                    if (_selectedOnlineIndex % GRID_COLUMNS < GRID_COLUMNS - 1 &&
+                        _selectedOnlineIndex < _onlineSongElements.Count - 1) {
                         SelectOnlineSong(_selectedOnlineIndex + 1);
                         ScrollToSelectedOnline();
                     }
@@ -2128,83 +2466,108 @@ namespace RiqMenu.UI.Toolkit {
                     if (_selectedOnlineIndex >= _onlineSongElements.Count - GRID_COLUMNS * 2) {
                         LoadMoreOnlineSongs();
                     }
-                }
-            }
-            else if (UnityEngine.Input.GetKeyDown(KeyCode.PageUp) && _currentTab != OverlayTab.Settings) {
-                if (_currentTab == OverlayTab.Local) {
-                    SelectLocalSong(Mathf.Max(0, _selectedLocalIndex - PAGE_SIZE));
-                    ScrollToSelectedLocal();
-                }
-                else {
-                    SelectOnlineSong(Mathf.Max(0, _selectedOnlineIndex - PAGE_SIZE));
-                    ScrollToSelectedOnline();
-                }
-            }
-            else if (UnityEngine.Input.GetKeyDown(KeyCode.PageDown) && _currentTab != OverlayTab.Settings) {
-                if (_currentTab == OverlayTab.Local) {
-                    SelectLocalSong(Mathf.Min(_localSongElements.Count - 1, _selectedLocalIndex + PAGE_SIZE));
-                    ScrollToSelectedLocal();
-                }
-                else {
-                    SelectOnlineSong(Mathf.Min(_onlineSongElements.Count - 1, _selectedOnlineIndex + PAGE_SIZE));
-                    ScrollToSelectedOnline();
 
-                    if (_selectedOnlineIndex >= _onlineSongElements.Count - GRID_COLUMNS * 2) {
-                        LoadMoreOnlineSongs();
-                    }
+                    break;
                 }
+                case (NavigationDirection.None, OverlayTab.Local):
+                    if (inputManager?.IsActionDown(RiqInputAction.PageUp, ignoreBlocking: true) ??
+                        UnityEngine.Input.GetKeyDown(KeyCode.PageUp)) {
+                        SelectLocalSong(Mathf.Max(0, _selectedLocalIndex - PAGE_SIZE));
+                        ScrollToSelectedLocal();
+                    }
+                    else if (inputManager?.IsActionDown(RiqInputAction.PageDown, ignoreBlocking: true) ??
+                             UnityEngine.Input.GetKeyDown(KeyCode.PageDown)) {
+                        SelectLocalSong(Mathf.Min(_localSongElements.Count - 1, _selectedLocalIndex + PAGE_SIZE));
+                        ScrollToSelectedLocal();
+                    }
+                    
+                    break;
+                case (NavigationDirection.None, OverlayTab.Online):
+                    if (inputManager?.IsActionDown(RiqInputAction.PageUp, ignoreBlocking: true) ??
+                        UnityEngine.Input.GetKeyDown(KeyCode.PageUp)) {
+                        SelectOnlineSong(Mathf.Max(0, _selectedOnlineIndex - PAGE_SIZE));
+                        ScrollToSelectedOnline();
+                    }
+                    else if (inputManager?.IsActionDown(RiqInputAction.PageDown, ignoreBlocking: true) ??
+                             UnityEngine.Input.GetKeyDown(KeyCode.PageDown)) {
+                        SelectOnlineSong(Mathf.Min(_onlineSongElements.Count - 1,
+                            _selectedOnlineIndex + PAGE_SIZE));
+                        ScrollToSelectedOnline();
+
+                        if (_selectedOnlineIndex >= _onlineSongElements.Count - GRID_COLUMNS * 2) {
+                            LoadMoreOnlineSongs();
+                        }
+                    }
+
+                    break;
             }
 
             // Selection - only handle for the current tab
             // Space is an alternative to Enter, but not while searching (need space for typing)
-            bool selectPressed = UnityEngine.Input.GetKeyDown(KeyCode.Return) ||
-                                 UnityEngine.Input.GetKeyDown(KeyCode.KeypadEnter) ||
-                                 (!_isSearchMode && UnityEngine.Input.GetKeyDown(KeyCode.Space));
+            bool selectPressed = inputManager?.GetMenuSubmitDown(ignoreBlocking: true, allowSpace: !_isSearchMode) ??
+                                 (UnityEngine.Input.GetKeyDown(KeyCode.Return) ||
+                                  UnityEngine.Input.GetKeyDown(KeyCode.KeypadEnter) ||
+                                  (!_isSearchMode && UnityEngine.Input.GetKeyDown(KeyCode.Space)));
             if (selectPressed) {
-                // Check current visibility state
-                bool localVisible = _localContent?.style.display == DisplayStyle.Flex;
-                bool onlineVisible = _onlineContent?.style.display == DisplayStyle.Flex;
-
-                if (_currentTab == OverlayTab.Local && localVisible) {
-                    // Only play if we have local songs
-                    if (_localSongElements.Count > 0 && _selectedLocalIndex >= 0) {
-                        int actualIndex = _filteredLocalIndices.Count > 0 && _selectedLocalIndex < _filteredLocalIndices.Count
-                            ? _filteredLocalIndices[_selectedLocalIndex]
-                            : _selectedLocalIndex;
-                        OnSongSelected?.Invoke(actualIndex, OverlayTab.Local);
-                        Hide();
-                    }
-                    return; // Don't process anything else after Enter on Local tab
-                }
-                else if (_currentTab == OverlayTab.Online && onlineVisible) {
-                    // Only download if we have online songs
-                    if (_onlineSongElements.Count > 0 && _selectedOnlineIndex >= 0) {
-                        DownloadSelectedSong();
-                    }
-                    return; // Don't process anything else after Enter on Online tab
-                }
-                else if (_currentTab == OverlayTab.Settings) {
-                    // Toggle the currently selected setting
-                    if (_selectedSettingIndex == 0 && _accuracyBarToggle != null) {
-                        // Accuracy Bar toggle (boolean)
-                        _accuracyBarValue = !_accuracyBarValue;
-                        UpdateToggleStyle(_accuracyBarToggle, _accuracyBarValue);
-                        RiqMenuSettings.AccuracyBarEnabled = _accuracyBarValue;
-                    }
-                    else if (_selectedSettingIndex == 1 && _autoRestartToggle != null) {
-                        // Auto-Restart toggle (cycles through modes)
-                        _autoRestartValue = RiqMenuSettings.CycleAutoRestartMode();
-                        UpdateAutoRestartToggle();
-                    }
-                    else if (_selectedSettingIndex == 2 && _progressBarToggle != null) {
-                        // Progress Bar toggle (boolean)
-                        _progressBarValue = !_progressBarValue;
-                        UpdateToggleStyle(_progressBarToggle, _progressBarValue);
-                        RiqMenuSettings.ProgressBarEnabled = _progressBarValue;
-                    }
-                    return;
+                bool stopProcessing = HandleSubmit();
+                if (stopProcessing) {
+                    return; // Some actions on submit require that nothing else happens afterward
                 }
             }
+        }
+
+        private void ExecuteCurrentTabPrimaryAction() {
+            HandleSubmit();
+        }
+
+        private bool HandleSubmit() {
+            bool localVisible = _localContent?.style.display == DisplayStyle.Flex;
+            bool onlineVisible = _onlineContent?.style.display == DisplayStyle.Flex;
+
+            if (_currentTab == OverlayTab.Local && localVisible) {
+                // Only play if we have local songs
+                if (_localSongElements.Count > 0 && _selectedLocalIndex >= 0) {
+                    int actualIndex = _filteredLocalIndices.Count > 0 && _selectedLocalIndex < _filteredLocalIndices.Count
+                        ? _filteredLocalIndices[_selectedLocalIndex]
+                        : _selectedLocalIndex;
+                    OnSongSelected?.Invoke(actualIndex, OverlayTab.Local);
+                    Hide();
+                }
+
+                return true; // Don't process anything else after Enter on Local tab
+            }
+
+            if (_currentTab == OverlayTab.Online && onlineVisible) {
+                // Only download if we have online songs
+                if (_onlineSongElements.Count > 0 && _selectedOnlineIndex >= 0) {
+                    DownloadSelectedSong();
+                }
+
+                return true; // Don't process anything else after Enter on Online tab
+            }
+
+            if (_currentTab == OverlayTab.Settings) {
+                // Toggle the currently selected setting
+                if (_selectedSettingIndex == 0 && _accuracyBarToggle != null) {
+                    // Accuracy Bar toggle (boolean)
+                    _accuracyBarValue = !_accuracyBarValue;
+                    UpdateToggleStyle(_accuracyBarToggle, _accuracyBarValue);
+                    RiqMenuSettings.AccuracyBarEnabled = _accuracyBarValue;
+                }
+                else if (_selectedSettingIndex == 1 && _autoRestartToggle != null) {
+                    // Auto-Restart toggle (cycles through modes)
+                    _autoRestartValue = RiqMenuSettings.CycleAutoRestartMode();
+                    UpdateAutoRestartToggle();
+                }
+                else if (_selectedSettingIndex == 2 && _progressBarToggle != null) {
+                    // Progress Bar toggle (boolean)
+                    _progressBarValue = !_progressBarValue;
+                    UpdateToggleStyle(_progressBarToggle, _progressBarValue);
+                    RiqMenuSettings.ProgressBarEnabled = _progressBarValue;
+                }
+            }
+
+            return false;
         }
 
         private void EnterSearchMode() {
@@ -2234,6 +2597,8 @@ namespace RiqMenu.UI.Toolkit {
                 }
                 field.SelectAll(); // Triggers edit mode
             });
+
+            UpdateSearchFieldTouchAccessibility();
         }
 
         private void ExitSearchMode() {
@@ -2264,11 +2629,38 @@ namespace RiqMenu.UI.Toolkit {
 
             // Focus overlay to take focus away from any field
             _overlay?.Focus();
+            UpdateSearchFieldTouchAccessibility();
+        }
+
+        private void UpdateSearchFieldTouchAccessibility() {
+            bool touchFocusable = _activeInputMethod == RiqInputMethod.Touch || _isSearchMode;
+            if (_localSearchField != null) {
+                _localSearchField.focusable = touchFocusable;
+            }
+            if (_onlineSearchField != null) {
+                _onlineSearchField.focusable = touchFocusable;
+            }
+        }
+
+        private void ToggleAutoplay() {
+            if (_currentTab != OverlayTab.Local) return;
+            MixtapeLoaderCustom.autoplay = !MixtapeLoaderCustom.autoplay;
+            UpdateAutoplayLabel();
+        }
+
+        private void ToggleMute() {
+            var audioManager = RiqMenuSystemManager.Instance?.AudioManager;
+            audioManager?.ToggleMute();
         }
 
         private void UpdateAutoplayLabel() {
             if (_autoplayLabel != null) {
-                _autoplayLabel.text = $"Autoplay: {(MixtapeLoaderCustom.autoplay ? "ON" : "OFF")} (P)";
+                string toggleHint = _inputManager?.GetBindingLabel(RiqInputAction.ToggleAutoplay, _activeInputMethod);
+                if (string.IsNullOrEmpty(toggleHint)) {
+                    toggleHint = "P";
+                }
+
+                _autoplayLabel.text = $"Autoplay: {(MixtapeLoaderCustom.autoplay ? "ON" : "OFF")} ({toggleHint})";
                 _autoplayLabel.style.color = ParseColor(MixtapeLoaderCustom.autoplay ? RiqMenuStyles.Green : RiqMenuStyles.Coral);
             }
         }
@@ -2362,6 +2754,7 @@ namespace RiqMenu.UI.Toolkit {
 
         public void Show() {
             if (_isVisible) return;
+            TryConnectInputManager();
 
             // Prevent immediate re-open after hiding (e.g., after playing a song)
             if (Time.time - _lastHideTime < REOPEN_COOLDOWN) {
@@ -2394,30 +2787,31 @@ namespace RiqMenu.UI.Toolkit {
             CurrentTabStatic = OverlayTab.Local;
             _localContent.style.display = DisplayStyle.Flex;
             _onlineContent.style.display = DisplayStyle.None;
+            _settingsContent.style.display = DisplayStyle.None;
             ApplyTabStyle(_localTab, true);
             ApplyTabStyle(_onlineTab, false);
+            ApplyTabStyle(_settingsTab, false);
+            UpdateFooterHints();
 
             // Reset search fields
             if (_localSearchField != null) {
                 _localSearchField.value = "Search local songs...";
-                _localSearchField.focusable = false; // Only focusable via Tab
                 _localSearchField.Blur();
                 var inp = _localSearchField.Q<VisualElement>("unity-text-input");
                 if (inp != null) inp.style.color = ParseColor(RiqMenuStyles.GrayLight);
             }
             if (_onlineSearchField != null) {
                 _onlineSearchField.value = "Search online songs...";
-                _onlineSearchField.focusable = false; // Only focusable via Tab
                 _onlineSearchField.Blur();
                 var inp = _onlineSearchField.Q<VisualElement>("unity-text-input");
                 if (inp != null) inp.style.color = ParseColor(RiqMenuStyles.GrayLight);
             }
+            UpdateSearchFieldTouchAccessibility();
 
             RefreshLocalSongList();
             UpdateAutoplayLabel();
 
-            var inputManager = RiqMenuSystemManager.Instance?.InputManager;
-            inputManager?.BlockInput();
+            _inputManager?.BlockInput();
 
             OnOverlayOpened?.Invoke();
 
@@ -2435,8 +2829,7 @@ namespace RiqMenu.UI.Toolkit {
             // Stop audio preview
             StopPreview();
 
-            var inputManager = RiqMenuSystemManager.Instance?.InputManager;
-            inputManager?.UnblockInput();
+            _inputManager?.UnblockInput();
 
             OnOverlayClosed?.Invoke();
         }
