@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Reflection;
+using System.Text;
 using System.Text.RegularExpressions;
 using BepInEx.Logging;
 using UnityEngine;
@@ -512,7 +513,10 @@ mv ""{tempPath}"" ""{pluginPath}"" 2>/dev/null
 # Delete this script
 rm -f ""$0""
 ";
-            File.WriteAllText(scriptPath, scriptContent);
+            // Normalize to Unix line endings
+            scriptContent = scriptContent.Replace("\r\n", "\n");
+            
+            File.WriteAllText(scriptPath, scriptContent, new UTF8Encoding(false));
 
             // Make the script executable
             try

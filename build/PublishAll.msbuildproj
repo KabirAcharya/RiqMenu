@@ -1,0 +1,48 @@
+<Project DefaultTargets="Publish">
+    <PropertyGroup>
+        <Configuration>Release</Configuration>
+        <OutputDir>$(MSBuildThisFileDirectory)/Releases</OutputDir>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PluginProject Include="../RiqMenu/RiqMenu.csproj"/>
+        <InstallerProject Include="../RiqMenuInstaller/RiqMenuInstaller.csproj"/>
+    </ItemGroup>
+
+    <Target Name="Publish">
+
+        <!-- Build Plugin -->
+        <MSBuild Projects="@(PluginProject)" Targets="Build"
+                 Properties="Configuration=$(Configuration)"/>
+
+        <Copy SourceFiles="..\RiqMenu\bin\$(Configuration)\netstandard2.0\RiqMenu.dll"
+              DestinationFolder="$(OutputDir)"/>
+
+        <!-- Build Windows Installer -->
+        <MSBuild Projects="@(InstallerProject)" Targets="Publish"
+                 Properties="Configuration=$(Configuration);
+                         RuntimeIdentifier=win-x64;
+                         PublishDir=$(OutputDir)"/>
+        <Delete Files="$(OutputDir)/RiqMenuInstaller.pdb"/>
+
+        <!-- Rename Linux Installer -->
+        <MSBuild Projects="@(InstallerProject)" Targets="Publish"
+                 Properties="Configuration=$(Configuration);
+                         RuntimeIdentifier=linux-x64;
+                         PublishDir=$(OutputDir)/temp-linux"/>
+        <Move SourceFiles="$(OutputDir)/temp-linux/RiqMenuInstaller"
+              DestinationFiles="$(OutputDir)/RiqMenuInstaller-linux_x64"/>
+        <RemoveDir Directories="$(OutputDir)/temp-linux"/>
+
+        <!-- Rename macOS Installer -->
+        <MSBuild Projects="@(InstallerProject)" Targets="Publish"
+                 Properties="Configuration=$(Configuration);
+                         RuntimeIdentifier=osx-x64;
+                         PublishDir=$(OutputDir)/temp-osx"/>
+        <Move SourceFiles="$(OutputDir)/temp-osx/RiqMenuInstaller"
+              DestinationFiles="$(OutputDir)/RiqMenuInstaller-osx_x64"/>
+        <RemoveDir Directories="$(OutputDir)/temp-osx"/>
+
+    </Target>
+
+</Project>
