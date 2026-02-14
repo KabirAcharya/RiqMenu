@@ -290,7 +290,6 @@ namespace RiqMenu.Online
                     DownloadCount = ParseInt(json, "downloadCount"),
                     UploaderName = ParseString(json, "uploaderName")
                 };
-
                 return song;
             }
             catch
@@ -339,6 +338,5 @@ namespace RiqMenu.Online
             if (name.Length > 100) name = name.Substring(0, 100);
             return name;
         }
-
     }
 }
