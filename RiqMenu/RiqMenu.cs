@@ -31,7 +31,7 @@ namespace RiqMenu
 
         private static TitleScript titleScript;
 
-        private RiqMenuSystemManager systemManager;
+        private RiqMenuSystemManager systemManager => RiqMenuSystemManager.Instance;
         private SongManager songManager => systemManager?.SongManager;
         private AudioManager audioManager => systemManager?.AudioManager;
         private UIManager uiManager => systemManager?.UIManager;
@@ -52,9 +52,6 @@ namespace RiqMenu
             DontDestroyOnLoad(gameObject);
 
             AutoUpdater.CheckAndUpdate(Logger);
-
-            systemManager = RiqMenuSystemManager.Instance;
-            systemManager.InitializeSystems();
 
             if (songManager != null) {
                 songManager.OnSongsLoaded += OnSongsLoaded;

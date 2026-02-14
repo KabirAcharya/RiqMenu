@@ -38,6 +38,7 @@ namespace RiqMenu.Core
             }
             _instance = this;
             DontDestroyOnLoad(gameObject);
+            InitializeSystems();
         }
 
         public void InitializeSystems() {
@@ -77,6 +78,15 @@ namespace RiqMenu.Core
                 system?.Cleanup();
             }
             _systems.Clear();
+            SongManager = null;
+            AudioManager = null;
+            InputManager = null;
+            UIManager = null;
+            GameplaySystem = null;
+            _isInitialized = false;
+            if (_instance == this) {
+                _instance = null;
+            }
         }
 
         public T GetSystem<T>() where T : class, IRiqMenuSystem {
