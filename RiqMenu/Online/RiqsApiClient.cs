@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using UnityEngine;
@@ -229,6 +230,7 @@ namespace RiqMenu.Online
             {
                 using (var client = new WebClient())
                 {
+                    client.Encoding = Encoding.UTF8;
                     client.Headers.Add("User-Agent", UserAgent);
                     return client.DownloadString(url);
                 }
@@ -288,6 +290,7 @@ namespace RiqMenu.Online
                     DownloadCount = ParseInt(json, "downloadCount"),
                     UploaderName = ParseString(json, "uploaderName")
                 };
+
                 return song;
             }
             catch
@@ -336,5 +339,6 @@ namespace RiqMenu.Online
             if (name.Length > 100) name = name.Substring(0, 100);
             return name;
         }
+
     }
 }
