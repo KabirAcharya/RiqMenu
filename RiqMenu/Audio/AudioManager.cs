@@ -204,7 +204,13 @@ namespace RiqMenu.Audio
                 yield break;
             }
 
-            string uri = "file:///" + tempPath.Replace('\\', '/');
+            string uri;
+            try {
+                uri = new Uri(tempPath).AbsoluteUri;
+            }
+            catch {
+                uri = "file:///" + tempPath.Replace('\\', '/');
+            }
             using (var www = UnityWebRequestMultimedia.GetAudioClip(uri, audioType)) {
                 // Prefer streaming to avoid full decode upfront
                 if (www.downloadHandler is DownloadHandlerAudioClip dh) {
