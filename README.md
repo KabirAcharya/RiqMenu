@@ -10,6 +10,25 @@ Download and run `RiqMenuInstaller.exe` from the [latest release](https://github
 - Install the latest RiqMenu
 - Create the songs folder for you
 
+## Quick Install (Unix)
+
+Download `RiqMenuInstaller-[linux/osx]_x64` from the [latest release](https://github.com/KabirAcharya/RiqMenu/releases) and execute it:
+
+```bash
+% Linux
+./RiqMenuInstaller-linux_x64
+% macOS
+./RiqMenuInstaller-osx_x64
+```
+
+It will automatically:
+- Find your Bits & Bops installation
+- Install the latest BepInEx 5.x
+- Install the latest RiqMenu
+- Create the songs folder for you
+
+Note: you may need to run the game via `run_bepinex.sh`. If you have the game on Steam, you can also set Launch Options in the game properties in Steam launcher to `./run_bepinex.sh %command%`.
+
 ## Manual Installation
 
 - Install [BepInEx 5.x](https://docs.bepinex.dev/articles/user_guide/installation/index.html) into Bits & Bops.
