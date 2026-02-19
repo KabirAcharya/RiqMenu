@@ -25,7 +25,7 @@ namespace RiqMenu.UI
             var inputManager = RiqMenuSystemManager.Instance?.InputManager;
             if (inputManager != null) {
                 inputManager.OnOverlayToggleRequested += ToggleOverlay;
-                inputManager.OnEscapePressed += HandleEscapePressed;
+                inputManager.OnMenuCancelPressed += HandleMenuCancelPressed;
             }
 
             IsActive = true;
@@ -36,7 +36,7 @@ namespace RiqMenu.UI
             var inputManager = RiqMenuSystemManager.Instance?.InputManager;
             if (inputManager != null) {
                 inputManager.OnOverlayToggleRequested -= ToggleOverlay;
-                inputManager.OnEscapePressed -= HandleEscapePressed;
+                inputManager.OnMenuCancelPressed -= HandleMenuCancelPressed;
             }
 
             if (_overlay != null) {
@@ -56,7 +56,7 @@ namespace RiqMenu.UI
             _overlay?.Toggle();
         }
 
-        private void HandleEscapePressed() {
+        private void HandleMenuCancelPressed() {
             if (_overlay != null && _overlay.IsVisible) {
                 _overlay.Hide();
             }
