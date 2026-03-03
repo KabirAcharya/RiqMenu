@@ -1,71 +1,74 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net48</TargetFramework>
+    <TargetFramework>netstandard2.0</TargetFramework>
     <AssemblyName>RiqMenu</AssemblyName>
-    <Description> A simple RIQ menu for Bits &amp; Bops. </Description>
+    <Description>A simple RIQ menu for Bits &amp; Bops.</Description>
     <Version>1.5.0</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="Assets\riqmenu_theme" />
+    <EmbeddedResource Include="Assets/riqmenu_theme"/>
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference
-            Include="BepInEx.Analyzers"
-            Version="1.*"
-            PrivateAssets="all"
-        />
-    <PackageReference Include="BepInEx.Core" Version="5.*" />
-    <PackageReference Include="BepInEx.PluginInfoProps" Version="1.*" />
-    <PackageReference
-            Include="UnityEngine.Modules"
-            Version="2021.3.33"
-            IncludeAssets="compile"
-        />
+    <PackageReference Include="BepInEx.Analyzers" Version="1.*" PrivateAssets="all"/>
+    <PackageReference Include="BepInEx.Core" Version="5.*"/>
+    <PackageReference Include="BepInEx.PluginInfoProps" Version="1.*"/>
+    <PackageReference Include="UnityEngine.Modules" Version="2021.3.33" IncludeAssets="compile"/>
   </ItemGroup>
 
-  <ItemGroup Condition="'$(TargetFramework.TrimEnd(`0123456789`))' == 'net'">
-    <PackageReference
-            Include="Microsoft.NETFramework.ReferenceAssemblies"
-            Version="1.0.3"
-            PrivateAssets="all"
-        />
-  </ItemGroup>
-
-  <ItemGroup>
+  <!-- Windows References -->
+  <ItemGroup Condition="'$(OS)' == 'Windows_NT'">
     <Reference Include="Assembly-CSharp">
-      <HintPath
-            >F:\Games\Steam\steamapps\common\Bits &amp; Bops Demo\Bits &amp; Bops_Data\Managed\Assembly-CSharp.dll</HintPath>
+      <HintPath>F:\Games\Steam\steamapps\common\Bits &amp; Bops Demo\Bits &amp; Bops_Data\Managed\Assembly-CSharp.dll</HintPath>
     </Reference>
     <Reference Include="System.IO.Compression">
-      <HintPath
-            >F:\Games\Steam\steamapps\common\Bits &amp; Bops Demo\Bits &amp; Bops_Data\Managed\System.IO.Compression.dll</HintPath>
+      <HintPath>F:\Games\Steam\steamapps\common\Bits &amp; Bops Demo\Bits &amp; Bops_Data\Managed\System.IO.Compression.dll</HintPath>
     </Reference>
     <Reference Include="TempoStudio.Core">
-      <HintPath
-            >F:\Games\Steam\steamapps\common\Bits &amp; Bops Demo\Bits &amp; Bops_Data\Managed\TempoStudio.Core.dll</HintPath>
+      <HintPath>F:\Games\Steam\steamapps\common\Bits &amp; Bops Demo\Bits &amp; Bops_Data\Managed\TempoStudio.Core.dll</HintPath>
     </Reference>
     <Reference Include="Unity.TextMeshPro">
-      <HintPath
-            >F:\Games\Steam\steamapps\common\Bits &amp; Bops Demo\Bits &amp; Bops_Data\Managed\Unity.TextMeshPro.dll</HintPath>
+      <HintPath>F:\Games\Steam\steamapps\common\Bits &amp; Bops Demo\Bits &amp; Bops_Data\Managed\Unity.TextMeshPro.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine.UI">
-      <HintPath
-            >F:\Games\Steam\steamapps\common\Bits &amp; Bops Demo\Bits &amp; Bops_Data\Managed\UnityEngine.UI.dll</HintPath>
+      <HintPath>F:\Games\Steam\steamapps\common\Bits &amp; Bops Demo\Bits &amp; Bops_Data\Managed\UnityEngine.UI.dll</HintPath>
     </Reference>
   </ItemGroup>
 
+  <!-- Linux/macOS References -->
+  <ItemGroup Condition="'$(OS)' != 'Windows_NT'">
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(HOME)/.local/share/Steam/steamapps/common/Bits &amp; Bops/Bits &amp; Bops_Data/Managed/Assembly-CSharp.dll</HintPath>
+    </Reference>
+    <Reference Include="System.IO.Compression">
+      <HintPath>$(HOME)/.local/share/Steam/steamapps/common/Bits &amp; Bops/Bits &amp; Bops_Data/Managed/System.IO.Compression.dll</HintPath>
+    </Reference>
+    <Reference Include="TempoStudio.Core">
+      <HintPath>$(HOME)/.local/share/Steam/steamapps/common/Bits &amp; Bops/Bits &amp; Bops_Data/Managed/TempoStudio.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="Unity.TextMeshPro">
+      <HintPath>$(HOME)/.local/share/Steam/steamapps/common/Bits &amp; Bops/Bits &amp; Bops_Data/Managed/Unity.TextMeshPro.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.UI">
+      <HintPath>$(HOME)/.local/share/Steam/steamapps/common/Bits &amp; Bops/Bits &amp; Bops_Data/Managed/UnityEngine.UI.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Cross-platform Post-build copy -->
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <Exec
-            Command="copy &quot;$(TargetPath)&quot; &quot;F:\Games\Steam\steamapps\common\Bits &amp; Bops Demo\BepInEx\plugins&quot; /Y"
-        />
-    <Exec
-            Command="copy &quot;$(TargetPath)&quot; &quot;F:\Games\Steam\steamapps\common\Bits &amp; Bops\BepInEx\plugins&quot; /Y"
-        />
+
+    <!-- Windows -->
+    <Exec Condition="'$(OS)' == 'Windows_NT'"
+          Command="copy &quot;$(TargetPath)&quot; &quot;F:\Games\Steam\steamapps\common\Bits &amp; Bops Demo\BepInEx\plugins&quot; /Y"/>
+
+    <!-- Linux -->
+    <Exec Condition="'$(OS)' != 'Windows_NT'"
+          Command="cp &quot;$(TargetPath)&quot; &quot;$HOME/.local/share/Steam/steamapps/common/Bits &amp; Bops/BepInEx/plugins/&quot;"/>
+
   </Target>
 
 </Project>

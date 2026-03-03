@@ -544,6 +544,7 @@ class Program
 
                 // Print Unix-specific instructions
                 PrintYellow("Note: On Linux/macOS, you may need to run the game via run_bepinex.sh");
+                PrintYellow("You can also set Launch Options in the game properties in Steam launcher to \"./run_bepinex.sh %command%\"");
             }
 
             PrintGreen($"BepInEx {version} installed successfully!");
